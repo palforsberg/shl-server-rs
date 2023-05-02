@@ -1,0 +1,7 @@
+/target
+/deployment
+/.idea
+/db
+
+Cargo.lock
+deploy.sh

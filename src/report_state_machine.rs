@@ -1,0 +1,73 @@
+use std::{collections::HashMap, time::Instant, cmp::Ordering};
+
+use tracing::log;
+
+use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent, ApiEventType, ApiEventInfo, GameEndInfo}, game_report_service::{GameReportService, ApiGameReport, GameStatus}, models2::external::{self, event::{PlayByPlayType, General}}, api_season_service::ApiGame};
+
+pub enum ApiSseMsg {
+    Report(ApiGameReport),
+    Event(ApiGameEvent),
+}
+
+impl ApiGameReport {
+    fn get_winner(&self) -> Option<String> {
+        match self.home_team_result.cmp(&self.away_team_result) {
+            Ordering::Greater => Some(self.home_team_code.clone()),
+            Ordering::Less => Some(self.away_team_code.clone()),
+            Ordering::Equal => None,
+        }
+    }    
+}
+
+pub struct ReportStateMachine {
+    last: Option<GameStatus>,
+}
+
+impl ReportStateMachine {
+    pub fn new() -> ReportStateMachine {
+        ReportStateMachine {
+            last: None,
+        }
+    }
+
+    pub fn process(&mut self, report: &ApiGameReport) -> Option<ApiGameEvent> {
+        let last_status = self.last
+            .clone()
+            .unwrap_or_else(|| ReportStateMachine::get_initial_status(&report.game_uuid).unwrap_or(GameStatus::Coming));
+
+        let result = if last_status == GameStatus::Coming && report.status == GameStatus::Period1 {
+            Some(ApiGameEvent { 
+                game_uuid: report.game_uuid.clone(),
+                event_id: "GameStarted".to_string(),
+                revision: 1,
+                status: GameStatus::Period1,
+                gametime: "00:00".to_string(),
+                description: "Nedsläpp".to_string(),
+                event_type: ApiEventType::GameStart, 
+                info: ApiEventInfo::GameStart,
+            })
+        } else if last_status != GameStatus::Finished && report.status == GameStatus::Finished {
+            Some(ApiGameEvent { 
+                game_uuid: report.game_uuid.clone(),
+                event_id: "GameEnded".to_string(), revision: 1,
+                status: GameStatus::Finished,
+                gametime: "20:00".to_string(),
+                description: "Matchen slutade".to_string(),
+                event_type: ApiEventType::GameEnd, 
+                info: ApiEventInfo::GameEnd(GameEndInfo { winner: report.get_winner() }),
+            })
+        } else {
+            None
+        };
+        self.last = Some(report.status.clone());
+        result
+    }
+
+    fn get_initial_status(game_uuid: &str) -> Option<GameStatus> {
+        let before = Instant::now();
+        let res = GameReportService::read(game_uuid)
+            .map(|e| e.status);
+        log::info!("[RSM] Get initial status {:?} {game_uuid} {:.2?}", res, before.elapsed());
+        res
+    } 
+}
