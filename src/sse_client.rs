@@ -1,18 +1,11 @@
-use std::{collections::HashMap, sync::Arc, sync::Mutex};
 
-use futures::{StreamExt, Stream};
+use futures::{StreamExt};
 use reqwest_eventsource::{EventSource, Event};
-use serde::{Deserialize, Serialize};
-use tokio::{task::JoinHandle, sync::mpsc::{Sender, Receiver}};
+use tokio::{task::JoinHandle, sync::mpsc::{Receiver}};
 use tracing::log;
 
-use crate::{game_report_service::ApiGameReport, models::StringOrNum, models2::external::{self, event::{SseEvent, PlayByPlay, GameReport}}, LogResult, CONFIG};
+use crate::{models2::external::{self, event::{SseEvent}}, LogResult, CONFIG};
 
-
-pub enum SseMsg {
-    Report(String, external::event::GameReport),
-    Event(String, external::event::PlayByPlay),
-}
 pub struct SseClient;
 impl SseClient {
     pub async fn spawn_listener(game_uuid: &str) -> (JoinHandle<()>, Receiver<(String, external::event::GameReport)>, Receiver<(String, external::event::PlayByPlay)>) {
@@ -34,18 +27,19 @@ impl SseClient {
                     };
                     let event = message
                             .and_then(|msg| serde_json::from_str::<SseEvent>(&msg.data)
-                                .ok_log(&format!("[SSE] Parse failed {}", &msg.data))
-                            );
+                                .ok_log(&format!("[SSE] Parse failed {}", &msg.data)));
                     if let Some(event) = event {
                         if let Some(report) = event.gameReport {
-                            if (report.revision != last_report_id) {
-                                report_sender.send((uuid.to_string(), report.clone())).await;
+                            if report.revision != last_report_id {
+                                report_sender.send((uuid.to_string(), report.clone())).await
+                                    .ok_log("[SSSE] Error sending report");
                             }
                             last_report_id = report.revision;
                         }
                         if let Some(event) = event.playByPlay.map(|e| e.actions[0].clone()) {
                             if event.hash != last_event_id {
-                                event_sender.send((uuid.to_string(), event.clone())).await;
+                                event_sender.send((uuid.to_string(), event.clone())).await
+                                    .ok_log("[SSSE] Error sending event");
                             }
                             last_event_id = event.hash.clone();
                         }
@@ -55,7 +49,6 @@ impl SseClient {
                     log::debug!("[SSE] task");
                 }
             }
-            log::error!("[SSE] Thread stopped {uuid}");
         });
         (handle, report_receiver, event_receiver)
     }

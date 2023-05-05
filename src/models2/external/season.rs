@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
 
-use crate::models::{StringOrNum, League, Season};
+use crate::models::{StringOrNum, League};
 
 fn default_TBD() -> String {
     "TBD".to_string()

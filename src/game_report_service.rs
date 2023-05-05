@@ -60,7 +60,7 @@ pub struct GameReportService;
 impl GameReportService {
     pub fn store(game_uuid: &str, report: &ApiGameReport) {
         let db = GameReportService::get_db();
-        db.write(&game_uuid.to_string(), report);
+        _ = db.write(&game_uuid.to_string(), report);
     }
     pub fn read(game_uuid: &str) -> Option<ApiGameReport> {
         let db = GameReportService::get_db();

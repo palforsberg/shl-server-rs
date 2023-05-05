@@ -1,9 +1,8 @@
-use std::{time::Duration, str::FromStr, fmt::{Display, write}};
+use std::{time::Duration, str::FromStr, fmt::{Display}};
 
 use serde::{Deserialize, Serialize};
-use tracing::log;
 
-use crate::{db::Db, rest_client::{get_events, self}, models2::external::{event::{PlayByPlayType, Penalty, Shot, Goal}, self}, game_report_service::{GameStatus, ApiGameReport}, models::ParseStringError};
+use crate::{db::Db, rest_client::{self}, models2::external::{event::{PlayByPlayType, Penalty, Shot, Goal}, self}, game_report_service::{GameStatus}, models::ParseStringError};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Player {
@@ -183,20 +182,6 @@ pub struct PlayByPlay {
     pub class: PlayByPlayType,
 }
 
-impl external::event::PlayByPlay {
-    pub fn into_mapped(self, game_uuid: &str) -> PlayByPlay {
-        PlayByPlay {
-            game_uuid: game_uuid.to_string(),
-            event_id: self.eventId,
-            revision: self.revision,
-            period: self.period.to_num(),
-            gametime: self.gametime.clone(),
-            description: self.description.clone(),
-            class: self.class,
-        }
-    }
-}
-
 pub struct EventService;
 impl EventService {
  
@@ -210,7 +195,7 @@ impl EventService {
         } else {
             rest_client::get_events(game_uuid).await.unwrap_or_default()
         };
-        db_raw.write(&game_uuid.to_string(), &raw_events);
+        _ = db_raw.write(&game_uuid.to_string(), &raw_events);
 
         Some(raw_events.into_iter().map(|e| e.into_mapped_event(game_uuid)).collect())
     }
@@ -226,7 +211,7 @@ impl EventService {
             events.push(event.clone());
             new_event = true;
         }
-        db.write(&game_uuid.to_string(), &events);
+        _ = db.write(&game_uuid.to_string(), &events);
         new_event
     }
 
@@ -241,11 +226,8 @@ impl EventService {
             events.push(event.clone());
             new_event = true;
         }
-        db.write(&game_uuid.to_string(), &events);
+        _ = db.write(&game_uuid.to_string(), &events);
         new_event
     }
 
-    pub fn read(game_uuid: &str) -> Vec<PlayByPlay> {
-        Db::new("v2_events_raw").read(&game_uuid).unwrap_or_default()
-    }
 }

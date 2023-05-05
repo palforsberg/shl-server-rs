@@ -1,9 +1,7 @@
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use serde::de::DeserializeOwned;
 use tracing::log;
-use std::collections::HashMap;
 use std::fmt::Display;
-use std::fs::File;
 use std::time::{Instant, Duration, SystemTime};
 use walkdir::WalkDir;
 
@@ -23,7 +21,6 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
     }
 
     pub fn read(&self, key: &K) -> Option<V> {
-        let before = Instant::now();
         let path = self.get_path(&key.to_string());
         Db::<K, V>::read_file(&path)
     }

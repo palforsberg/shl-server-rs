@@ -1,11 +1,11 @@
-use std::{time::Instant, marker::PhantomData, collections::HashMap, sync::Arc};
+use std::{time::Instant, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::log;
 
-use crate::{models::{StringOrNum, Season, League, GameType, SeasonKey}, game_report_service::{GameReportService, GameStatus, ApiGameReport}, db::Db, models2::external::season::{SeasonGame, SeasonRsp}};
+use crate::{models::{Season, League, GameType, SeasonKey}, game_report_service::{GameReportService, GameStatus, ApiGameReport}, db::Db, models2::external::season::{SeasonRsp}};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiGame {
@@ -77,7 +77,7 @@ impl ApiSeasonService {
         .collect();
 
         log::info!("[API.SEASON] Decorated {season} {} games {:.2?}", decorated_games.len(), before.elapsed());
-        self.db.write(season, &decorated_games);
+        _ = self.db.write(season, &decorated_games);
         if season.is_current() {
             self.current_season_in_mem = decorated_games.clone();
         }
@@ -93,7 +93,7 @@ impl ApiSeasonService {
             self.current_season_in_mem[pos].gametime = Some(report.gametime.clone());
             result = Some(self.current_season_in_mem[pos].clone());
 
-            self.db.write(&Season::Season2022, &self.current_season_in_mem);
+            _ = self.db.write(&Season::Season2022, &self.current_season_in_mem);
         }
         result
     }
@@ -116,14 +116,5 @@ impl ApiSeasonService {
         let res: Vec<ApiGame> = db.read_all().iter().flat_map(|e| e.iter()).cloned().collect();
         log::info!("[API.SEASON] Read all {} {:.0?}", &res.len(), before.elapsed());
         res
-    }
-}
-
-pub struct ApiCurrentSeason {
-    current_season_in_mem: Vec<ApiGame>,
-}
-impl ApiCurrentSeason {
-    pub fn new() -> ApiCurrentSeason {
-        ApiCurrentSeason { current_season_in_mem: vec!() }
     }
 }

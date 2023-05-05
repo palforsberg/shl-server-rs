@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
@@ -37,7 +37,7 @@ impl VoteService {
         all_votes.retain(|e| !(e.game_uuid == vote.game_uuid && e.user_id == vote.user_id));
         all_votes.push(vote.clone());
 
-        self.db.write(&"all".to_string(), &all_votes);
+        _ = self.db.write(&"all".to_string(), &all_votes);
         
         self.in_mem_per_game = VoteService::get_per_game(&all_votes);
 

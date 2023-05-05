@@ -1,9 +1,9 @@
-use std::{collections::{HashSet, HashMap}, time::Instant};
+use std::{time::Instant};
 
 use serde::{Serialize, Deserialize};
 use tracing::log;
 
-use crate::{db::Db, models2::external::season::{SeasonRsp, SeasonTeam}, models::League};
+use crate::{db::Db, models2::external::season::{SeasonTeam}};
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -40,7 +40,7 @@ impl ApiTeamsService {
             }
         }
 
-        db.write(&"teams".to_string(), &existing);
+        _ = db.write(&"teams".to_string(), &existing);
         log::info!("[TEAMS] wrote {} {:.0?}", existing.len(), before.elapsed());
         existing
     }

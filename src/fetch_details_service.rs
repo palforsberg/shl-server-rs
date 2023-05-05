@@ -1,17 +1,12 @@
 
 use std::time::Duration;
 
-use futures::future::{join_all, join};
 use tracing::log;
 
-use crate::{models2::external::season::SeasonGame, stats_service::StatsService, api_season_service::{ApiGame, ApiSeasonService}, player_service::PlayerService, event_service::EventService, db::Db};
+use crate::{stats_service::StatsService, api_season_service::{ApiGame, ApiSeasonService}, player_service::PlayerService, event_service::EventService, db::Db};
 
 pub struct FetchDetailsService;
 impl FetchDetailsService {
-    pub fn new() -> FetchDetailsService {
-        FetchDetailsService { }
-    }
-
     pub async fn update() {
         let db: Db<String, String> = Db::new("v2_fetch_details");
         if !db.is_stale(&"key".to_string(), Some(Duration::from_secs(60 * 60))) {
@@ -40,6 +35,6 @@ impl FetchDetailsService {
         }
         let info = format!("{} out of {} left", nr_games_left, all_games.len());
         log::info!("[FETCHDETAILS] {info}");
-        db.write(&"key".to_string(), &info);
+        _ = db.write(&"key".to_string(), &info);
     }
 }

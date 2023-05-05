@@ -1,8 +1,8 @@
-use std::{collections::HashMap, time::Instant, cmp::Ordering};
+use std::{time::Instant, cmp::Ordering};
 
 use tracing::log;
 
-use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent, ApiEventType, GameEndInfo}, game_report_service::{GameReportService, ApiGameReport, GameStatus}, models2::external::{self, event::{PlayByPlayType, General}}, api_season_service::ApiGame};
+use crate::{event_service::{ApiGameEvent, ApiEventType, GameEndInfo}, game_report_service::{GameReportService, ApiGameReport, GameStatus}};
 
 pub enum ApiSseMsg {
     Report(ApiGameReport),

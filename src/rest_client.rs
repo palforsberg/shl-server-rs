@@ -1,17 +1,11 @@
-use std::fmt::write;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
-use reqwest::Error;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use serde::de::DeserializeOwned;
 use tracing::log;
 use crate::{LogResult, CONFIG};
 use crate::db::{Db};
-use crate::models2::external::game_stats::StatsRsp;
-use crate::models2::external::player::PlayerStatsRsp;
-use crate::models::{League, GameType, Season, SeasonKey, StringOrNum};
-use crate::models2::external::season::SeasonRsp;
+use crate::models::{League, GameType, Season, SeasonKey};
 
 pub trait IdentifiableEnum {
     fn get_uuid(&self) -> &str;
@@ -54,9 +48,6 @@ pub fn get_season_url(key: &SeasonKey) -> String {
     let game_type_param = format!("gameTypeUuid={}", key.2.get_uuid());
     format!("{}/sports/game-info?gamePlace=all&played=all&{season_param}&{league_param}&{game_type_param}", CONFIG.get_url(&key.1))
 }
-pub async fn get_season(key: &SeasonKey, throttle_s: Option<Duration>) -> Option<SeasonRsp> {
-    throttle_call(&get_season_url(key), throttle_s).await
-}
 
 pub async fn get_events(game_uuid: &str) -> Option<Vec<crate::models2::external::event::PlayByPlay>> {
     let url = format!("{}/gameday/play-by-play/initial-events/{game_uuid}", CONFIG.get_url(&League::SHL));
@@ -77,7 +68,7 @@ pub async fn throttle_call<T: DeserializeOwned + Serialize>(url: &str, throttle_
     if db.is_stale(&url.to_string(), throttle_s) {
         let rsp: Option<T> = get_call(url).await;
         if let Some(rsp) = rsp {
-            db.write(&url.to_string(), &rsp);
+            _ = db.write(&url.to_string(), &rsp);
             Some(rsp)
         } else {
             None

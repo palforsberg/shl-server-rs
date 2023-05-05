@@ -1,10 +1,10 @@
-use std::{time::{Instant, Duration}, sync::Arc};
+use std::{time::{Instant}, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::{log, span, Level};
+use tracing::{log};
 
-use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, ApiGameStats}, player_service::{Players, PlayerService}, game_report_service::GameStatus};
+use crate::{event_service::{EventService, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, ApiGameStats}, player_service::{Players, PlayerService}, game_report_service::GameStatus};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameDetails {

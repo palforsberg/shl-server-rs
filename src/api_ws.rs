@@ -34,8 +34,8 @@ pub struct WsReq {
 
 
 impl From<ApiGameEvent> for WsMsg {
-    fn from(e: ApiGameEvent) -> Self {
-        WsMsg { game_uuid: e.game_uuid.clone(), body: WsMsgBody::Event { event: e } }
+    fn from(event: ApiGameEvent) -> Self {
+        WsMsg { game_uuid: event.game_uuid.clone(), body: WsMsgBody::Event { event } }
     }
 }
 impl From<ApiGameReport> for WsMsg {
@@ -61,7 +61,7 @@ impl ApiWs {
                 }
             }
         });
-        let handle = tokio::spawn(async move {
+        _ = tokio::spawn(async move {
             loop {
                 let msg = select! {
                     msg = broadcast_receiver.recv() => match msg {

@@ -1,12 +1,9 @@
 use std::time::Duration;
 
-use futures::future::join_all;
-use tracing::log;
 use crate::rest_client::{self};
 use crate::db::Db;
-use crate::api_season_service::ApiSeasonService;
 use crate::models::{GameType, League, SeasonKey, Season};
-use crate::models2::external::season::{SeasonGame, SeasonRsp, SeasonTeam};
+use crate::models2::external::season::{SeasonRsp};
 
 pub struct SeasonService {
 }
@@ -43,20 +40,5 @@ impl SeasonService {
         }
 
         (result, updated)
-    }
-    
-    pub fn read_all_teams(season: &Season) -> Vec<SeasonTeam> {
-        let db = Db::<String, SeasonRsp>::new("v2_season");
-        let url_shl = rest_client::get_season_url(&SeasonKey(season.clone(), League::SHL, GameType::Season));
-        let mut shl_teams = db.read(&url_shl)
-            .map(|e: SeasonRsp| e.teamList)
-            .unwrap_or_default();
-        let url_ha = rest_client::get_season_url(&SeasonKey(season.clone(), League::HA, GameType::Season));
-        let ha_teams = db.read(&url_ha)
-            .map(|e: SeasonRsp| e.teamList)
-            .unwrap_or_default();
-        shl_teams.extend(ha_teams);
-        shl_teams
-
     }
 }

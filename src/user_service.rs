@@ -22,7 +22,7 @@ impl UserService {
         users.retain(|e| e.id != user.id);
         users.push(user);
 
-        db.write(&"all".to_string(), &users);
+        _ = db.write(&"all".to_string(), &users);
     }
 
     pub fn get_users_for(team1: &str, team2: &str) -> Vec<User> {
@@ -30,7 +30,7 @@ impl UserService {
             .read(&"all".to_string())
             .unwrap_or_default()
             .into_iter()
-            .filter(|e| e.teams.contains(&team1.to_string()) || e.teams.contains(&team1.to_string()))
+            .filter(|e| e.teams.contains(&team1.to_string()) || e.teams.contains(&team2.to_string()))
             .collect()
     }
 

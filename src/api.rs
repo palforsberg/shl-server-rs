@@ -1,15 +1,14 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc};
 
-use axum::{Router, extract::{Path, State, WebSocketUpgrade, ws::{WebSocket, Message}}, response::IntoResponse, Json};
-use futures::{StreamExt, SinkExt};
+use axum::{Router, extract::{Path, State, WebSocketUpgrade}, response::IntoResponse, Json};
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
-use tokio::{select, sync::{broadcast::{Receiver, Sender, self}, RwLock}};
+use serde::{Deserialize};
+use tokio::{sync::{RwLock, broadcast::Sender}};
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tracing::log;
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, GameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{VoteService, Vote, SafeVoteService}, event_service::ApiGameEvent, stats_service::ApiGameStats, game_report_service::ApiGameReport, api_ws::{ApiWs, WsMsg}};
+use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, GameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{User, UserService}};
 
 
 
@@ -45,6 +44,8 @@ impl Api {
 
             .route("/vote", axum::routing::post(Api::vote))
 
+            .route("/user", axum::routing::post(Api::add_user))
+
             .route("/ws", axum::routing::get(Api::ws_handler))
     
             .route("/", axum::routing::get(Api::root))
@@ -54,7 +55,7 @@ impl Api {
             );
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         log::info!("[API] Listening on {}", addr);
-        axum::Server::bind(&addr)
+        _ = axum::Server::bind(&addr)
             .serve(app.into_make_service())
             .await;
     }
@@ -73,7 +74,7 @@ impl Api {
     }
     
     async fn get_game_details(
-        Path((game_uuid, game_id)): Path<(String, String)>, 
+        Path((game_uuid, _)): Path<(String, String)>, 
         State(state): State<ApiState>) -> Json<Option<GameDetails>> {
             
         Json(state.game_details_service.read(&game_uuid).await)
@@ -83,7 +84,7 @@ impl Api {
         ApiTeamsService::read_raw()
     }
     
-    async fn get_shl_standings(season: Option<Path<(String)>>) -> impl IntoResponse {
+    async fn get_shl_standings(season: Option<Path<String>>) -> impl IntoResponse {
         if let Ok(season) = season.map(|e| e.parse()).unwrap_or_else(|| Ok(Season::get_current())) {
             let shl = StandingService::read_raw(League::SHL, season.clone());
             let ha = StandingService::read_raw(League::HA, season);
@@ -124,6 +125,11 @@ impl Api {
             (StatusCode::NOT_FOUND, "404".to_string())
         }
     }  
+
+    async fn add_user(Json(user): Json<User>) -> impl IntoResponse {
+        UserService::store(user);
+        (StatusCode::OK, "success".to_string())
+    }
 
     async fn ws_handler(
         ws: WebSocketUpgrade,

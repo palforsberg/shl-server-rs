@@ -1,4 +1,4 @@
-use std::{fmt::{Display, write}, collections::HashMap, time::Instant};
+use std::{fmt::Display, collections::HashMap, time::Instant};
 
 use serde::{Deserialize, Serialize};
 use tracing::log;
@@ -37,7 +37,7 @@ impl Standing {
 
 impl ApiGame {
     fn did_team_win(&self, team_code: &str) -> bool {
-        let winner = match (self.home_team_result > self.away_team_result) {
+        let winner = match self.home_team_result > self.away_team_result {
             true => &self.home_team_code,
             false => &self.away_team_code,
         };
@@ -85,7 +85,7 @@ impl StandingService {
         for (key, val) in league_map {
             let standing_key = StandingKey(key, season.clone());
             let standings = StandingService::get_standings(val);
-            db.write(&standing_key, &standings);
+            _ = db.write(&standing_key, &standings);
         }
 
         log::info!("[STANDING] Updated in {:.0?}", before.elapsed());
