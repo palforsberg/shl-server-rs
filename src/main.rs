@@ -4,9 +4,10 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::{Arc};
 use std::time::Duration;
-use api::Api;
+use api::{Api};
 use api_season_service::{ApiGame, SafeApiSeasonService};
 use api_teams_service::ApiTeamsService;
+use api_ws::WsMsg;
 use bounded_vec_deque::BoundedVecDeque;
 use config_handler::Config;
 use futures::StreamExt;
@@ -22,6 +23,7 @@ use tokio::sync::mpsc::{Sender, Receiver};
 use models::{Season};
 use tokio::task::JoinHandle;
 use vote_service::VoteService;
+use crate::api_game_details::ApiGameDetailsService;
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
 use crate::report_state_machine::{ReportStateMachine, ApiSseMsg};
@@ -54,9 +56,10 @@ mod vote_service;
 mod standing_service;
 mod api_teams_service;
 mod api;
+mod api_ws;
 mod fetch_details_service;
 mod user_service;
-
+mod mock_test;
 
 lazy_static! {
     pub static ref CONFIG: Config = config_handler::get_config();
@@ -73,6 +76,7 @@ async fn main() {
     let format = tracing_subscriber::fmt::format()
         .with_level(true)
         .with_target(false)
+        .with_ansi(false)
         .with_thread_ids(false)
         .with_thread_names(false)
         .with_file(false)
@@ -91,16 +95,19 @@ async fn main() {
         StandingService::update(&season, &api_games);
     }
 
-    let (live_game_sender, live_game_receiver) = mpsc::channel(2);
-    let (sse_msg_sender, sse_msg_receiver) = mpsc::channel(10);
+    let (live_game_sender, live_game_receiver) = mpsc::channel(1000);
+    let (sse_msg_sender, sse_msg_receiver) = mpsc::channel(1000);
+    let (broadcast_sender, broadcast_receiver) = tokio::sync::broadcast::channel(1000);
 
     let loop_api_season_service = api_season_service.clone();
     let event_api_season_service = api_season_service.clone();
     let sse_api_season_service = api_season_service.clone();
-    let h1 = tokio::spawn(async move { Api::serve(CONFIG.port, api_season_service, vote_service).await });
-    let h2 = tokio::spawn(async move { start_loop(live_game_sender, loop_api_season_service).await });
+    let sse_broadcast_sender = broadcast_sender.clone();
+    let loop_broadcast_sender = broadcast_sender.clone();
+    let h1 = tokio::spawn(async move { Api::serve(CONFIG.port, api_season_service, vote_service, broadcast_sender).await });
+    let h2 = tokio::spawn(async { start_loop(live_game_sender, loop_api_season_service, loop_broadcast_sender).await });
     let h3 = tokio::spawn(async { game_start_end_listener(sse_api_season_service, live_game_receiver, sse_msg_sender).await });
-    let h4 = tokio::spawn(async { handle_sse_events(event_api_season_service, sse_msg_receiver).await });
+    let h4 = tokio::spawn(async { handle_sse_events(event_api_season_service, sse_msg_receiver, sse_broadcast_sender).await });
 
     join_all(vec!(h1, h2, h3, h4)).await;
 
@@ -109,10 +116,11 @@ async fn main() {
 async fn start_loop(
     live_game_sender: Sender<String>, 
     api_season_service: SafeApiSeasonService,
+    broadcast_sender: tokio::sync::broadcast::Sender<WsMsg>,
 ) {
     let season_service = SeasonService { };
-
     let mut sent_live_games = BoundedVecDeque::new(40);
+
     loop {
         log::info!("[LOOP] loop");
         let season = Season::get_current();
@@ -139,7 +147,7 @@ async fn start_loop(
                 sent_live_games.push_front(game_uuid.clone());
             }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }  
 }
 
@@ -167,7 +175,8 @@ async fn game_start_end_listener(
                         },
                         Some((game_uuid, event)) = event_receiver.recv() => {
                             EventService::store_raw(&uuid, &event);
-                            sse_sender.send((uuid.clone(), ApiSseMsg::Event(event.into_mapped_event(&uuid)))).await;
+                            let mapped = event.into_mapped_event(&uuid);
+                            sse_sender.send((uuid.clone(), ApiSseMsg::Event(mapped))).await;
                         }
                         // if 10 minutes has passed without any new events and status is finished => abort
                         _ = tokio::time::sleep(Duration::from_secs(60 * 10)) => {
@@ -188,6 +197,7 @@ async fn game_start_end_listener(
 async fn handle_sse_events(
     api_season_service: SafeApiSeasonService,
     mut sse_msg_receiver: Receiver<(String, ApiSseMsg)>, 
+    broadcast_sender: tokio::sync::broadcast::Sender<WsMsg>,
 ) {
 
     log::info!("[SSE] Start sse handler");
@@ -197,6 +207,9 @@ async fn handle_sse_events(
                 ApiSseMsg::Report(report) => {
                     log::info!("[SSE] REPORT {report}");
                     GameReportService::store(&game_uuid, &report);
+                    
+                    broadcast_sender.send(report.clone().into());
+
                     let updated_api_game = api_season_service.write().await.update_from_report(&report);
                     if let Some(g) = updated_api_game {
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
@@ -213,11 +226,13 @@ async fn handle_sse_events(
                         }
                     }
 
+                    broadcast_sender.send(event.clone().into());
+
                     if let Some(g) = api_season_service.read().await.read_current_season_game(&game_uuid) {
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                         PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                     }
-                    if event.event_type == ApiEventType::GameEnd {
+                    if matches!(event.info, ApiEventType::GameEnd(_)) {
                         let season_service = api_season_service.clone();
                         tokio::spawn(async move {
                             log::info!("[SSE] Game Ended, Updating in 5min");

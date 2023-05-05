@@ -54,8 +54,8 @@ pub struct General {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Location {
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -123,9 +123,9 @@ pub enum PlayByPlayType {
     PenaltyShot(Shot),
     Shot(Shot),
     ShotBlocked(Shot),
-    ShootoutPenaltyShot(Shot),
     ShotIron(Shot),
     ShotWide(Shot),
+    ShootoutPenaltyShot(Shot),
 
     General(General),
     Timeout(General),

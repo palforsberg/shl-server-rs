@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{log, span, Level};
 
-use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, GHomeAwayStats}, player_service::{Players, PlayerService}, game_report_service::GameStatus};
+use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, ApiGameStats}, player_service::{Players, PlayerService}, game_report_service::GameStatus};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameDetails {
     events: Vec<ApiGameEvent>,
-    stats: Option<GHomeAwayStats>,
+    stats: Option<ApiGameStats>,
     game: ApiGame,
     players: Players,
 }
@@ -27,7 +27,7 @@ impl ApiGameDetailsService {
         let before = Instant::now();
         // todo: no details for previous seasons
         let game = self.api_season_service.read().await.read_current_season_game(game_uuid);
-        if let Some(GameStatus::Coming) = game.as_ref().map(|e| e.status.clone()) {
+        if let Some(GameStatus::Finished) = game.as_ref().map(|e| e.status.clone()) {
             return Some(GameDetails { game: game.unwrap(), events: vec!(), stats: None, players: Players::default() });
         }
 
@@ -45,7 +45,7 @@ impl ApiGameDetailsService {
             players,
         });
 
-        log::debug!("[API.DETAILS] read - all {:.2?}", before.elapsed());
+        log::debug!("[API.DETAILS] read {:.2?}", before.elapsed());
         res
     }
 }

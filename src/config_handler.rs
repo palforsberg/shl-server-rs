@@ -22,6 +22,7 @@ impl Config {
 }
 
 pub fn get_config() -> Config {
+    println!("[CONFIG]");
     let path = "./deployment/config.json";
     let data = fs::read_to_string(path)
         .expect("Unable to read file");

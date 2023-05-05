@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Instant, cmp::Ordering};
 
 use tracing::log;
 
-use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent, ApiEventType, ApiEventInfo, GameEndInfo}, game_report_service::{GameReportService, ApiGameReport, GameStatus}, models2::external::{self, event::{PlayByPlayType, General}}, api_season_service::ApiGame};
+use crate::{event_service::{EventService, PlayByPlay, ApiGameEvent, ApiEventType, GameEndInfo}, game_report_service::{GameReportService, ApiGameReport, GameStatus}, models2::external::{self, event::{PlayByPlayType, General}}, api_season_service::ApiGame};
 
 pub enum ApiSseMsg {
     Report(ApiGameReport),
@@ -43,8 +43,7 @@ impl ReportStateMachine {
                 status: GameStatus::Period1,
                 gametime: "00:00".to_string(),
                 description: "Nedsläpp".to_string(),
-                event_type: ApiEventType::GameStart, 
-                info: ApiEventInfo::GameStart,
+                info: ApiEventType::GameStart,
             })
         } else if last_status != GameStatus::Finished && report.status == GameStatus::Finished {
             Some(ApiGameEvent { 
@@ -53,8 +52,7 @@ impl ReportStateMachine {
                 status: GameStatus::Finished,
                 gametime: "20:00".to_string(),
                 description: "Matchen slutade".to_string(),
-                event_type: ApiEventType::GameEnd, 
-                info: ApiEventInfo::GameEnd(GameEndInfo { winner: report.get_winner() }),
+                info: ApiEventType::GameEnd(GameEndInfo { winner: report.get_winner() }),
             })
         } else {
             None

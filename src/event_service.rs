@@ -3,7 +3,7 @@ use std::{time::Duration, str::FromStr, fmt::{Display, write}};
 use serde::{Deserialize, Serialize};
 use tracing::log;
 
-use crate::{db::Db, rest_client::{get_events, self}, models2::external::{event::{PlayByPlayType, Penalty}, self}, game_report_service::{GameStatus, ApiGameReport}, models::ParseStringError};
+use crate::{db::Db, rest_client::{get_events, self}, models2::external::{event::{PlayByPlayType, Penalty, Shot, Goal}, self}, game_report_service::{GameStatus, ApiGameReport}, models::ParseStringError};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Player {
@@ -24,6 +24,12 @@ impl FromStr for Player {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Location {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 
 pub struct GoalInfo {
     pub team: String,
@@ -32,6 +38,21 @@ pub struct GoalInfo {
     pub assist: Option<String>,
     pub home_team_result: i16,
     pub away_team_result: i16,
+    pub location: Location,
+}
+
+impl GoalInfo {
+    pub fn new(a: &Goal) -> GoalInfo {
+        GoalInfo { 
+            team: a.team.clone(),
+            player: a.extra.scorerLong.parse().ok(),
+            team_advantage: a.extra.teamAdvantage.clone(),
+            assist: Some(a.extra.assist.clone()),
+            home_team_result: a.extra.homeForward.to_num(),
+            away_team_result: a.extra.homeAgainst.to_num(),
+            location: Location { x: a.location.x, y: a.location.y }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -42,7 +63,6 @@ pub struct PenaltyInfo {
     pub reason: Option<String>,
     pub penalty: Option<String>,
 }
-
 impl PenaltyInfo {
     pub fn new(description: &str, p: &Penalty) -> PenaltyInfo {
         let (player_info, penalty_info) = description.split_once("utvisas ")
@@ -56,34 +76,32 @@ impl PenaltyInfo {
     }
 }
 
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ShotInfo {
+    pub team: String,
+    pub location: Location,
+}
+impl ShotInfo {
+    pub fn new(info: &Shot) -> ShotInfo {
+        ShotInfo { team: info.team.clone(), location: Location { x: info.location.x, y: info.location.y } }
+    }
+}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct GameEndInfo {
     pub winner: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(untagged)]
-pub enum ApiEventInfo {
+#[serde(tag = "type", content = "info")]
+pub enum ApiEventType {
     Goal(GoalInfo),
     PeriodEnd,
     PeriodStart,
     GameEnd(GameEndInfo),
     GameStart,
     Penalty(PenaltyInfo),
-    Shot,
-    Timeout,
-    General,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum ApiEventType {
-    Goal,
-    PeriodEnd,
-    PeriodStart,
-    GameEnd,
-    GameStart,
-    Penalty,
-    Shot,
+    Shot(ShotInfo),
     Timeout,
     General,
 }
@@ -96,56 +114,44 @@ pub struct ApiGameEvent {
     pub status: GameStatus,
     pub gametime: String,
     pub description: String,
-    #[serde(rename = "type")]
-    pub event_type: ApiEventType,
-    pub info: ApiEventInfo,
+    #[serde(flatten)]
+    pub info: ApiEventType,
 }
 
 impl ApiGameEvent {
     pub fn should_publish(&self) -> bool {
-        matches!(self.event_type, ApiEventType::Goal | ApiEventType::GameStart | ApiEventType::GameEnd)
+        matches!(self.info, ApiEventType::Goal(_) | ApiEventType::GameStart | ApiEventType::GameEnd(_))
     }
 }
 impl Display for ApiGameEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} {} :: {:?} • {}", self.event_type, self.description, self.status, self.gametime)
+        write!(f, "{:?} {} :: {:?} • {}", self.info, self.description, self.status, self.gametime)
     }
 }
 
 impl external::event::PlayByPlay {
-    fn to_type(&self) -> (ApiEventInfo, ApiEventType) {
+    fn to_type(&self) -> ApiEventType {
         match &self.class {
-            PlayByPlayType::General(_) => (ApiEventInfo::General, ApiEventType::General),
-            PlayByPlayType::Livefeed(_) => (ApiEventInfo::General, ApiEventType::General),
-            PlayByPlayType::GoolkeeperEvent(_) => (ApiEventInfo::General, ApiEventType::General),
+            PlayByPlayType::General(_) => ApiEventType::General,
+            PlayByPlayType::Livefeed(_) => ApiEventType::General,
+            PlayByPlayType::GoolkeeperEvent(_) => ApiEventType::General,
 
-            PlayByPlayType::Goal(a) => {
-                let aa = a.clone();
-                let info = ApiEventInfo::Goal(GoalInfo { 
-                    team: aa.team,
-                    player: aa.extra.scorerLong.parse().ok(),
-                    team_advantage: aa.extra.teamAdvantage,
-                    assist: Some(aa.extra.assist),
-                    home_team_result: aa.extra.homeForward.to_num(),
-                    away_team_result: aa.extra.homeAgainst.to_num(),
-                });
-                (info, ApiEventType::Goal)
-            },
+            PlayByPlayType::Goal(a) => ApiEventType::Goal(GoalInfo::new(a)),
 
-            PlayByPlayType::Shot(_) =>          (ApiEventInfo::Shot, ApiEventType::Shot),
-            PlayByPlayType::ShotBlocked(_) =>   (ApiEventInfo::Shot, ApiEventType::Shot),
-            PlayByPlayType::ShotWide(_) =>      (ApiEventInfo::Shot, ApiEventType::Shot),
-            PlayByPlayType::ShotIron(_) =>      (ApiEventInfo::Shot, ApiEventType::Shot),
-            PlayByPlayType::PenaltyShot(_) =>   (ApiEventInfo::Shot, ApiEventType::Shot),
-            PlayByPlayType::ShootoutPenaltyShot(_) => (ApiEventInfo::Shot, ApiEventType::Shot),
+            PlayByPlayType::Shot(a) =>          ApiEventType::Shot(ShotInfo::new(a)),
+            PlayByPlayType::ShotBlocked(a) =>   ApiEventType::Shot(ShotInfo::new(a)),
+            PlayByPlayType::ShotWide(a) =>      ApiEventType::Shot(ShotInfo::new(a)),
+            PlayByPlayType::ShotIron(a) =>      ApiEventType::Shot(ShotInfo::new(a)),
+            PlayByPlayType::PenaltyShot(a) =>   ApiEventType::Shot(ShotInfo::new(a)),
+            PlayByPlayType::ShootoutPenaltyShot(a) => ApiEventType::Shot(ShotInfo::new(a)),
 
-            PlayByPlayType::Penalty(a) => (ApiEventInfo::Penalty(PenaltyInfo::new(&self.description, a)), ApiEventType::Penalty),
+            PlayByPlayType::Penalty(a) => ApiEventType::Penalty(PenaltyInfo::new(&self.description, a)),
 
-            PlayByPlayType::Timeout(_) => (ApiEventInfo::Timeout, ApiEventType::Timeout),
+            PlayByPlayType::Timeout(_) => ApiEventType::Timeout,
 
             PlayByPlayType::Period(a) => match a.extra.gameStatus.as_str() {
-                "Playing" => (ApiEventInfo::PeriodStart, ApiEventType::PeriodStart),
-                _ => (ApiEventInfo::PeriodEnd, ApiEventType::PeriodEnd)
+                "Playing" => ApiEventType::PeriodStart,
+                _ => ApiEventType::PeriodEnd,
             },
         }
     }
@@ -153,7 +159,7 @@ impl external::event::PlayByPlay {
 
 impl external::event::PlayByPlay {
     pub fn into_mapped_event(self, game_uuid: &str) -> ApiGameEvent {
-        let (info, event_type): (ApiEventInfo, ApiEventType) = self.to_type();
+        let info: ApiEventType = self.to_type();
         ApiGameEvent {
             game_uuid: game_uuid.to_string(),
             event_id: format!("{}", self.eventId),
@@ -161,7 +167,6 @@ impl external::event::PlayByPlay {
             status: self.period.to_num().into(),
             gametime: self.gametime.clone(),
             description: self.description,
-            event_type,
             info,
         }
     }
@@ -241,6 +246,6 @@ impl EventService {
     }
 
     pub fn read(game_uuid: &str) -> Vec<PlayByPlay> {
-        Db::new("v2_events").read(&game_uuid).unwrap_or_default()
+        Db::new("v2_events_raw").read(&game_uuid).unwrap_or_default()
     }
 }

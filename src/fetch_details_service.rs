@@ -18,15 +18,16 @@ impl FetchDetailsService {
             return;
         }
         let all_games = ApiSeasonService::read_all();
-        let applicable_games: Vec<&ApiGame> = all_games.iter()
+        let mut applicable_games: Vec<&ApiGame> = all_games.iter()
             .filter(|e| e.played)
             .filter(|e| StatsService::is_stale(&e.league, &e.game_uuid) || PlayerService::is_stale(&e.league, &e.game_uuid))
-            .take(10)
             .collect();
 
-            if applicable_games.is_empty() {
-                log::info!("[FETCHDETAILS] Done");
-            }
+        let nr_games_left = applicable_games.len();
+        if applicable_games.is_empty() {
+            log::info!("[FETCHDETAILS] Done");
+        }
+        applicable_games.truncate(10);
         for e in applicable_games {
             log::info!("[FETCHDETAILS] {}", e.game_uuid);
             futures::join!(
@@ -37,7 +38,8 @@ impl FetchDetailsService {
             
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-
-        db.write(&"key".to_string(), &"updated".to_string());
+        let info = format!("{} out of {} left", nr_games_left, all_games.len());
+        log::info!("[FETCHDETAILS] {info}");
+        db.write(&"key".to_string(), &info);
     }
 }

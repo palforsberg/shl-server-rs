@@ -23,7 +23,7 @@ impl SseClient {
             log::info!("[SSE] Start listen to {uuid}");
             let mut last_report_id: u16 = 0;
             let mut last_event_id = "".to_string();
-            let mut es = EventSource::get(format!("{}{uuid}?instanceId=shl1_shl", CONFIG.sse_url));
+            let mut es = EventSource::get(format!("{}/{uuid}?instanceId=shl1_shl", CONFIG.sse_url));
             //"https://sse.dev/test");
             loop {
                 if let Some(event) = es.next().await {
@@ -34,7 +34,8 @@ impl SseClient {
                     };
                     let event = message
                             .and_then(|msg| serde_json::from_str::<SseEvent>(&msg.data)
-                            .ok_log(&format!("[SSE] Parse failed {}", &msg.data)));
+                                .ok_log(&format!("[SSE] Parse failed {}", &msg.data))
+                            );
                     if let Some(event) = event {
                         if let Some(report) = event.gameReport {
                             if (report.revision != last_report_id) {
@@ -48,6 +49,8 @@ impl SseClient {
                             }
                             last_event_id = event.hash.clone();
                         }
+                    } else {
+                        log::info!("Empty event");
                     }
                     log::debug!("[SSE] task");
                 }

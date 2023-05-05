@@ -1,28 +1,36 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use axum::{Router, extract::{Path, State}, response::IntoResponse, Json};
+use axum::{Router, extract::{Path, State, WebSocketUpgrade, ws::{WebSocket, Message}}, response::IntoResponse, Json};
+use futures::{StreamExt, SinkExt};
 use reqwest::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tokio::{select, sync::{broadcast::{Receiver, Sender, self}, RwLock}};
 use tower::ServiceBuilder;
+use tower_http::compression::CompressionLayer;
 use tracing::log;
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, GameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{VoteService, Vote, SafeVoteService}};
+use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, GameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{VoteService, Vote, SafeVoteService}, event_service::ApiGameEvent, stats_service::ApiGameStats, game_report_service::ApiGameReport, api_ws::{ApiWs, WsMsg}};
 
 
 
 #[derive(Clone)]
-struct ApiState {
-    game_details_service: ApiGameDetailsService,
-    season_service: SafeApiSeasonService,
-    vote_service: SafeVoteService,
+pub struct ApiState {
+    pub game_details_service: ApiGameDetailsService,
+    pub season_service: SafeApiSeasonService,
+    pub vote_service: SafeVoteService,
+    pub broadcast_sender: Sender<WsMsg>,
+
+    pub nr_ws: Arc<RwLock<i16>>,
 }
 pub struct Api;
 impl Api {
-    pub async fn serve(port: u16, season_service: SafeApiSeasonService, vote_service: SafeVoteService) {
+    pub async fn serve(port: u16, season_service: SafeApiSeasonService, vote_service: SafeVoteService, broadcast_sender: Sender<WsMsg>) {
         let state = ApiState {
             game_details_service: ApiGameDetailsService::new(season_service.clone()),
             season_service,
             vote_service,
+            broadcast_sender,
+            nr_ws: Arc::new(RwLock::new(0)),
         };
         let app = Router::new()
             .route("/games/:season", axum::routing::get(Api::get_games))
@@ -36,12 +44,13 @@ impl Api {
             .route("/live-activity/end", axum::routing::post(Api::end_live_activity))
 
             .route("/vote", axum::routing::post(Api::vote))
+
+            .route("/ws", axum::routing::get(Api::ws_handler))
     
             .route("/", axum::routing::get(Api::root))
             .with_state(state)
             .layer(ServiceBuilder::new()
-                // .layer(CompressionLayer::new()) // adds 50ms
-                // .layer(AddExtensionLayer::new(Arc::new(RwLock::new(state))))
+                .layer(CompressionLayer::new()) // adds 50ms
             );
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         log::info!("[API] Listening on {}", addr);
@@ -114,7 +123,13 @@ impl Api {
         } else {
             (StatusCode::NOT_FOUND, "404".to_string())
         }
-    }   
+    }  
+
+    async fn ws_handler(
+        ws: WebSocketUpgrade,
+        State(state): State<ApiState>) -> impl IntoResponse {
+        ws.on_upgrade(|socket| ApiWs::handle(socket, state))
+    } 
 }
 
 

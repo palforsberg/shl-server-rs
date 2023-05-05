@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use tracing::log;
 use crate::{LogResult, CONFIG};
 use crate::db::{Db};
-use crate::models2::external::game_stats::GameStatsV2;
+use crate::models2::external::game_stats::StatsRsp;
 use crate::models2::external::player::PlayerStatsRsp;
 use crate::models::{League, GameType, Season, SeasonKey, StringOrNum};
 use crate::models2::external::season::SeasonRsp;
@@ -48,12 +48,14 @@ impl IdentifiableEnum for Season {
     }
 }
 
-pub async fn get_season(key: &SeasonKey) -> Option<SeasonRsp> {
+pub fn get_season_url(key: &SeasonKey) -> String {
     let season_param = format!("seasonUuid={}", key.0.get_uuid());
     let league_param = format!("seriesUuid={}", key.1.get_uuid());
     let game_type_param = format!("gameTypeUuid={}", key.2.get_uuid());
-    let url = format!("{}/sports/game-info?gamePlace=all&played=all&{season_param}&{league_param}&{game_type_param}", CONFIG.get_url(&key.1));
-    get_call(&url).await
+    format!("{}/sports/game-info?gamePlace=all&played=all&{season_param}&{league_param}&{game_type_param}", CONFIG.get_url(&key.1))
+}
+pub async fn get_season(key: &SeasonKey, throttle_s: Option<Duration>) -> Option<SeasonRsp> {
+    throttle_call(&get_season_url(key), throttle_s).await
 }
 
 pub async fn get_events(game_uuid: &str) -> Option<Vec<crate::models2::external::event::PlayByPlay>> {

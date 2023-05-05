@@ -2,6 +2,9 @@
 /deployment
 /.idea
 /db
+/log
+/.vscode
 
+*_test.rs
 Cargo.lock
 deploy.sh

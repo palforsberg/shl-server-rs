@@ -19,6 +19,6 @@ pub struct PeriodStatsBreakdown {
     pub statistics: Vec<Statistics>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GameStatsV2 {
+pub struct StatsRsp {
     pub period_stats_breakdown: Vec<PeriodStatsBreakdown>,
 }
