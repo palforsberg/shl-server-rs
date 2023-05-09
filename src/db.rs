@@ -39,6 +39,14 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
         result
     }
 
+    pub fn stream_all(&self) -> impl Iterator<Item = V> {
+        let path = format!("./db/{}", self.name);
+        WalkDir::new(path).into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.metadata().ok().map(|e| e.is_file()).unwrap_or(false))
+            .filter_map(|entry| Db::<K, V>::read_file(entry.path().to_str().unwrap()))
+    }
+
     pub fn read_raw(&self, key: &K) -> String {
         let path = self.get_path(&key.to_string());
         let data = std::fs::read_to_string(path);

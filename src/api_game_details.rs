@@ -7,11 +7,11 @@ use tracing::{log};
 use crate::{event_service::{EventService, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, ApiGameStats}, player_service::{Players, PlayerService}, game_report_service::GameStatus};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GameDetails {
-    events: Vec<ApiGameEvent>,
-    stats: Option<ApiGameStats>,
-    game: ApiGame,
-    players: Players,
+pub struct ApiGameDetails {
+    pub events: Vec<ApiGameEvent>,
+    pub stats: Option<ApiGameStats>,
+    pub game: ApiGame,
+    pub players: Players,
 }
 
 #[derive(Clone)]
@@ -23,12 +23,12 @@ impl ApiGameDetailsService {
     pub fn new(api_season_service: Arc<RwLock<ApiSeasonService>>) -> ApiGameDetailsService {
         ApiGameDetailsService { api_season_service }
     }
-    pub async fn read(&self, game_uuid: &str) -> Option<GameDetails> {
+    pub async fn read(&self, game_uuid: &str) -> Option<ApiGameDetails> {
         let before = Instant::now();
         // todo: no details for previous seasons
         let game = self.api_season_service.read().await.read_current_season_game(game_uuid);
-        if let Some(GameStatus::Finished) = game.as_ref().map(|e| e.status.clone()) {
-            return Some(GameDetails { game: game.unwrap(), events: vec!(), stats: None, players: Players::default() });
+        if let Some(GameStatus::Coming) = game.as_ref().map(|e| e.status.clone()) {
+            return Some(ApiGameDetails { game: game.unwrap(), events: vec!(), stats: None, players: Players::default() });
         }
 
         let game = game.as_ref()?;
@@ -38,7 +38,7 @@ impl ApiGameDetailsService {
             PlayerService::update(&game.league, game_uuid, None),
         );
 
-        let res = Some(GameDetails {
+        let res = Some(ApiGameDetails {
             game: game.clone(),
             events: events.unwrap_or_default(),
             stats,

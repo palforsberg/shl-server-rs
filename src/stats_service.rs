@@ -6,16 +6,16 @@ use crate::{models::League, rest_client::{self}, models2::external::game_stats::
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GTeamStats {
-    g: i32,
-    sog: i32,
-    pim: i32,
-    fow: i32,
+    pub g: i32,
+    pub sog: i32,
+    pub pim: i32,
+    pub fow: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiGameStats {
-    home: GTeamStats,
-    away: GTeamStats,
+    pub home: GTeamStats,
+    pub away: GTeamStats,
 }
 
 

@@ -18,6 +18,7 @@ use models::{Season};
 use vote_service::VoteService;
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
+use crate::notification_service::{NotificationService};
 use crate::report_state_machine::{ReportStateMachine, ApiSseMsg};
 use crate::event_service::{EventService, ApiEventType};
 use crate::game_report_service::{GameReportService, ApiGameReport, GameStatus};
@@ -26,7 +27,6 @@ use crate::player_service::PlayerService;
 use crate::sse_client::{SseClient};
 use crate::season_service::SeasonService;
 use crate::stats_service::StatsService;
-use crate::user_service::UserService;
 use tracing::{log};
 use lazy_static::lazy_static;
 
@@ -51,6 +51,8 @@ mod api;
 mod api_ws;
 mod fetch_details_service;
 mod user_service;
+mod notification_service;
+mod apn_client;
 
 #[cfg(test)]
 mod mock_test;
@@ -114,7 +116,6 @@ async fn start_loop(
     let mut sent_live_games = BoundedVecDeque::new(40);
 
     loop {
-        log::info!("[LOOP] loop");
         let season = Season::get_current();
         let (responses, updated) = season_service.update(&season).await;
         if updated {
@@ -197,6 +198,7 @@ async fn handle_sse_events(
 ) {
 
     log::info!("[SSE] Start sse handler");
+    let mut notification_service = NotificationService::new();
     loop {
         if let Some((game_uuid, msg)) = sse_msg_receiver.recv().await {
             match msg {
@@ -209,6 +211,9 @@ async fn handle_sse_events(
 
                     let updated_api_game = api_season_service.write().await.update_from_report(&report);
                     if let Some(g) = updated_api_game {
+                        let last_event = EventService::read(&game_uuid).last().cloned();
+                        notification_service.process_live_activity(&g, last_event.as_ref()).await;
+
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                         PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                     }
@@ -216,10 +221,9 @@ async fn handle_sse_events(
                 ApiSseMsg::Event(event) => {
                     log::info!("[SSE] EVENT {event}");
                     let new_event = EventService::store(&game_uuid, &event);
-                    if new_event && event.should_publish() {
-                        if let Some(g) = api_season_service.read().await.read_current_season_game(&game_uuid) {
-                            let _ = UserService::get_users_for(&g.home_team_code, &g.away_team_code);
-                            log::info!("[SSE] Send notification {:?} {:?}", event, g);
+                    if new_event {
+                        if let Some(game) = api_season_service.read().await.read_current_season_game(&game_uuid) {
+                            notification_service.process(&game, Some(&event)).await;
                         }
                     }
 

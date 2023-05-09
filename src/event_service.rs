@@ -118,7 +118,7 @@ pub struct ApiGameEvent {
 }
 
 impl ApiGameEvent {
-    pub fn should_publish(&self) -> bool {
+    pub fn should_notify(&self) -> bool {
         matches!(self.info, ApiEventType::Goal(_) | ApiEventType::GameStart | ApiEventType::GameEnd(_))
     }
 }
@@ -171,17 +171,6 @@ impl external::event::PlayByPlay {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PlayByPlay {
-    pub game_uuid: String,
-    pub event_id: i32,
-    pub revision: u16,
-    pub period: i16,
-    pub gametime: String,
-    pub description: String,
-    pub class: PlayByPlayType,
-}
-
 pub struct EventService;
 impl EventService {
  
@@ -228,6 +217,13 @@ impl EventService {
         }
         _ = db.write(&game_uuid.to_string(), &events);
         new_event
+    }
+
+    pub fn read(game_uuid: &str) -> Vec<ApiGameEvent> {
+        let db = Db::<String, Vec<external::event::PlayByPlay>>::new("v2_events_raw");
+        db.read(&game_uuid.to_string()).unwrap_or_default()
+            .into_iter().map(|e| e.into_mapped_event(game_uuid))
+            .collect()
     }
 
 }

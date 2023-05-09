@@ -11,6 +11,11 @@ pub struct Config {
     pub shl_url: String,
 
     pub sse_url: String,
+
+    #[serde(default)]
+    pub apn_sandbox: bool,
+    #[serde(default)]
+    pub apn_topic: String,
 }
 impl Config {
     pub fn get_url(&self, league: &League) -> &str {

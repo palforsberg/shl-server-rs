@@ -1,40 +1,81 @@
 use serde::{Serialize, Deserialize};
 
-use crate::db::Db;
+use crate::{db::Db, event_service::ApiEventType, api::AddUser};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LiveActivityEntry {
+    pub game_uuid: String,
+    pub apn_token: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct User {
-    id: String,
-    teams: Vec<String>,
-    apn_token: Option<String>,
-    ios_version: Option<String>,
-    app_version: Option<String>,
+    pub id: String,
+    pub teams: Vec<String>,
+    pub apn_token: Option<String>,
+    pub ios_version: Option<String>,
+    pub app_version: Option<String>,    
+
+    pub muted_games: Vec<String>,
+    pub explicit_games: Vec<String>,
+    pub live_activities: Vec<LiveActivityEntry>,
+
+    pub event_types: Vec<ApiEventType>,
 }
 
 pub struct UserService;
 
 impl UserService {
 
-    pub fn store(user: User) {
+    pub fn handle(request: AddUser) {
         let db = UserService::get_db();
         // parallel stores?
-        let mut users = db.read(&"all".to_string()).unwrap_or_default();
-        users.retain(|e| e.id != user.id);
-        users.push(user);
+        let user = db.read(&request.id);
 
-        _ = db.write(&"all".to_string(), &users);
+        let updated_user = match user {
+            Some(mut user) => {
+                user.teams = request.teams;
+                user.apn_token = request.apn_token;
+                user.ios_version = request.ios_version;
+                user.app_version = request.app_version;
+                user
+            },
+            None => {
+                User {
+                    id: request.id,
+                    teams: request.teams,
+                    apn_token: request.apn_token,
+                    ios_version: request.ios_version,
+                    app_version: request.app_version,
+                    ..Default::default()
+                }
+            }
+        };
+
+        _ = db.write(&updated_user.id, &updated_user);
     }
 
-    pub fn get_users_for(team1: &str, team2: &str) -> Vec<User> {
-        UserService::get_db()
-            .read(&"all".to_string())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|e| e.teams.contains(&team1.to_string()) || e.teams.contains(&team2.to_string()))
-            .collect()
+    pub fn stream_all() -> impl Iterator<Item = User> {
+        UserService::get_db().stream_all()
     }
 
-    fn get_db() -> Db<String, Vec<User>> {
-        Db::new("v2_users")
+    pub fn remove_live_activity(user_id: &str, game_uuid: &str) {
+        let db = UserService::get_db();
+        if let Some(mut user) = db.read(&user_id.to_string()) {
+            user.live_activities.retain(|e| e.game_uuid != game_uuid);
+            _ = db.write(&user_id.to_string(), &user);
+        }
+    }
+
+    pub fn remove_apn_token(user_id: &str) {
+        let db = UserService::get_db();
+        if let Some(mut user) = db.read(&user_id.to_string()) {
+            user.apn_token = None;
+            _ = db.write(&user_id.to_string(), &user);
+        }
+    }
+
+    fn get_db() -> Db<String, User> {
+        Db::new("v2_user")
     }
 }

@@ -10,13 +10,14 @@ use crate::{models::{Season, League, GameType, SeasonKey}, game_report_service::
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiGame {
     pub game_uuid: String,
+    pub game_id: u8,
     pub home_team_code: String,
     pub away_team_code: String,
     pub home_team_result: i16,
     pub away_team_result: i16,
     pub start_date_time: DateTime<Utc>,
     pub status: GameStatus,
-    pub shootout: bool,
+    pub penalty_shots: bool,
     pub overtime: bool,
     pub played: bool,
     pub game_type: GameType,
@@ -49,13 +50,14 @@ impl ApiSeasonService {
             };
             let mut mapped = ApiGame {
                 game_uuid: e.uuid.clone(),
+                game_id: 123,
                 home_team_code: e.homeTeamInfo.code.clone(),
                 away_team_code: e.awayTeamInfo.code.clone(),
                 home_team_result: e.homeTeamInfo.score.to_num(),
                 away_team_result: e.awayTeamInfo.score.to_num(),
                 start_date_time: e.startDateTime,
                 played: GameStatus::Finished == base_status,
-                shootout: e.shootout,
+                penalty_shots: e.shootout,
                 overtime: e.overtime,
                 status: base_status,
                 season: key.0.clone(),

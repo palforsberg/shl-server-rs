@@ -21,17 +21,17 @@ pub struct Standing {
     team_code: TeamCode,
     rank: u8,
     
-    games_played: u16,
+    gp: u16,
     points: u16,
-    goal_diff: i16,
+    diff: i16,
     league: League,
 }
 
 impl Standing {
     fn add_game(&mut self, g: &ApiGame) {
-        self.games_played += 1;
+        self.gp += 1;
         self.points += g.get_points_for(&self.team_code);
-        self.goal_diff += g.get_goal_diff_for(&self.team_code);
+        self.diff += g.get_goal_diff_for(&self.team_code);
     }
 }
 
@@ -46,7 +46,7 @@ impl ApiGame {
     fn get_points_for(&self, team_code: &str) -> u16 {
         debug_assert!(self.home_team_code == team_code || self.away_team_code == team_code);
 
-        match (self.did_team_win(team_code), self.overtime || self.shootout) {
+        match (self.did_team_win(team_code), self.overtime || self.penalty_shots) {
             (true, false) => 3,
             (true, true) => 2,
             (false, true) => 1,
@@ -97,13 +97,13 @@ impl StandingService {
             {
                 team_map
                     .entry(g.home_team_code.clone())
-                    .or_insert_with(|| Standing { team_code: g.home_team_code.clone(), rank: 0, games_played: 0, points: 0, league: g.league.clone(), goal_diff: 0 })
+                    .or_insert_with(|| Standing { team_code: g.home_team_code.clone(), rank: 0, gp: 0, points: 0, league: g.league.clone(), diff: 0 })
                     .add_game(g);
             } 
             {
                 team_map
                     .entry(g.away_team_code.clone())
-                    .or_insert_with(|| Standing { team_code: g.away_team_code.clone(), rank: 0, games_played: 0, points: 0, league: g.league.clone(), goal_diff: 0 })
+                    .or_insert_with(|| Standing { team_code: g.away_team_code.clone(), rank: 0, gp: 0, points: 0, league: g.league.clone(), diff: 0 })
                     .add_game(g);
             }
         }
@@ -112,7 +112,7 @@ impl StandingService {
 
         all_teams.sort_by(|a, b| {
             if a.points == b.points {
-                b.goal_diff.partial_cmp(&a.goal_diff).unwrap()
+                b.diff.partial_cmp(&a.diff).unwrap()
             } else {
                 b.points.partial_cmp(&a.points).unwrap() 
             }
