@@ -80,7 +80,7 @@ impl From<(PlayerName, external::player::PlayerStats)> for PlayerStats {
             family_name: p_info.lastName,
             jersey: p.NR,
             team_code: p.info.teamId.clone(),
-            position: p.POS.clone(),
+            position: p.POS.to_str(),
             plus_minus: p.plus_minus,
             a: p.A,
             fol: p.FOL,

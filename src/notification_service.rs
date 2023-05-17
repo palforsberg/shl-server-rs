@@ -36,7 +36,7 @@ impl User {
 
 impl NotificationService {
     pub fn new() -> NotificationService {
-        NotificationService { apn_client: ApnClient::new(false) }
+        NotificationService { apn_client: ApnClient::new() }
     }
 
     pub async fn process(&mut self, game: &ApiGame, event: Option<&ApiGameEvent>) {

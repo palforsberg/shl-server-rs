@@ -1,30 +1,33 @@
 
 use std::fmt::Display;
 
-use crate::{api_season_service::ApiGame, event_service::ApiGameEvent};
+use crate::{api_season_service::ApiGame, event_service::ApiGameEvent, CONFIG};
 use axum::http::{HeaderMap, HeaderValue};
 use chrono::{DateTime, Utc, Duration};
 use jsonwebtoken::{Header, EncodingKey};
 use reqwest::Response;
 use serde::{Serialize};
+use tracing::log;
 
 pub struct ApnClient {
     base_url: String,
     team_id: String,
     key_id: String,
+    key_path: String,
     token: Option<Token>
 }
 
 impl ApnClient {
-    pub fn new(sandbox: bool) -> ApnClient {
-        let api_version = 3;
-        let host = match sandbox {
-            true => "api.development.push.apple.com",
-            false => "api.push.apple.com",
+    pub fn new() -> ApnClient {
+        let mut a = ApnClient { 
+            base_url: CONFIG.apn_host.to_string(), 
+            team_id: CONFIG.apn_team_id.to_string(), 
+            key_id: CONFIG.apn_key_id.to_string(), 
+            key_path: CONFIG.apn_key_path.to_string(),
+            token: None,
         };
-        let base_url = format!("{host}/{api_version}");
-
-        ApnClient { team_id: "team_id".to_string(), key_id: "key_id".to_string(), base_url, token: None }
+        a.get_token().unwrap();
+        a
     }
 
     pub async fn push<CT, D>(&mut self, push: &ApnPush<CT, D>, device_token: String) -> Result<Response, anyhow::Error> {
@@ -40,28 +43,35 @@ impl ApnClient {
         Ok(response)
     }
 
-    fn get_token(&mut self) -> Result<String, jsonwebtoken::errors::Error> {
+    fn get_token(&mut self) -> Result<String, anyhow::Error> {
         if let Some(token) = &self.token {
             if Utc::now() - token.expiration < Duration::minutes(55) {
                 return Ok(token.value.to_string())
             }
         }
+        let token = ApnClient::create_token(&self.team_id, &self.key_id, &self.key_path)?;
+        let token_str = token.value.clone();
+        self.token = Some(token);
+        Ok(token_str)
+    }
+
+    fn create_token(team_id: &str, key_id: &str, key_path: &str) -> Result<Token, anyhow::Error> {
         let claims = Claims {
-            iss: self.team_id.to_string(),
+            iss: team_id.to_string(),
             iat: Utc::now().timestamp(),
         };
         let header = Header {
             alg: jsonwebtoken::Algorithm::ES256,
-            kid: Some(self.key_id.to_string()),
+            kid: Some(key_id.to_string()),
             ..Default::default()
         };
-        let key = EncodingKey::from_rsa_pem(b"")?;
+        let key_file = std::fs::read(key_path)?;
+        let key = EncodingKey::from_ec_pem(&key_file)?;
         let token = jsonwebtoken::encode(&header, &claims, &key)?;
-        self.token = Some(Token { value: token.clone(), expiration: Utc::now() });
-        Ok(token)
+        log::info!("[APN] Created token");
+        Ok(Token { value: token, expiration: Utc::now() })
     }
 }
-
 
 
 struct Token {

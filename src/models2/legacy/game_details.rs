@@ -1,6 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::{event_service::ApiGameEvent, api_game_details::ApiGameDetails, game_report_service::GameStatus};
+use crate::{event_service::{ApiGameEvent, ApiEventType}, api_game_details::ApiGameDetails, game_report_service::GameStatus};
 
 #[derive(Serialize, Clone)]
 pub struct LegacyPeriod {
@@ -26,9 +27,112 @@ pub struct LegacyRecaps {
 pub struct LegacyGameDetails {
     pub recaps: LegacyRecaps,
     pub gameState: String,
-    pub events: Vec<ApiGameEvent>,
+    pub events: Vec<LegacyGameEvent>,
     pub status: GameStatus,
 }
+
+
+#[derive(Serialize, Clone)]
+pub struct LegacyGameEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    info: LegacyGameEventInfo,
+    timestamp: DateTime<Utc>,
+    id: String,
+    gametime: String,
+}
+
+
+#[derive(Serialize, Clone)]
+pub struct LegacyGameEventInfo {
+    homeTeamId: String,
+    awayTeamId: String,
+    homeResult: i16,
+    awayResult: i16,
+
+    team: Option<String>,
+    player: Option<LegacyPlayer>,
+    
+    teamAdvantage: Option<String>,
+    
+    periodNumber: i16,
+    
+    penalty: Option<i16>,
+    penaltyLong: Option<String>,
+    reason: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+pub struct LegacyPlayer {
+    firstName: String,
+    familyName: String,
+    jersey: i16,
+}
+
+impl ApiEventType {
+    fn to_str(&self) -> &str {
+        match self {
+            ApiEventType::Goal(_) => "Goal",
+            ApiEventType::PeriodStart => "PeriodStart",
+            ApiEventType::PeriodEnd => "PeriodEnd",
+            ApiEventType::Penalty(_) => "Penalty",
+            ApiEventType::Shot(_) => "Shot",
+            ApiEventType::GameStart => "GameStart",
+            ApiEventType::GameEnd(_) => "GameEnd",
+            ApiEventType::Timeout => "Timeout",
+            ApiEventType::General => "General",
+        }
+    }
+}
+impl From<(ApiGameEvent, ApiGameDetails)> for LegacyGameEvent {
+    fn from((event, details): (ApiGameEvent, ApiGameDetails)) -> Self {
+        LegacyGameEvent { 
+            event_type: event.info.to_str().to_string(),
+            info: LegacyGameEventInfo { 
+                homeTeamId: details.game.home_team_code, 
+                awayTeamId: details.game.away_team_code,
+                homeResult: details.game.home_team_result,
+                awayResult: details.game.away_team_result,
+                team: match event.info.clone() {
+                    ApiEventType::Goal(a) => Some(a.team),
+                    ApiEventType::Penalty(a) => Some(a.team),
+                    _ => None,
+                },
+                player: match event.info.clone() {
+                    ApiEventType::Goal(a) => a.player,
+                    ApiEventType::Penalty(a) => a.player,
+                    _ => None,
+                }.map(|e| LegacyPlayer { firstName: e.first_name, familyName: e.family_name, jersey: e.jersey.parse().unwrap_or_default() }),
+                teamAdvantage:  match event.info.clone() {
+                    ApiEventType::Goal(a) => Some(a.team_advantage),
+                    _ => None,
+                },
+                periodNumber: match event.status {
+                    GameStatus::Period1 => 1,
+                    GameStatus::Period2 => 2,
+                    GameStatus::Period3 => 3,
+                    GameStatus::Overtime => 4,
+                    GameStatus::Shootout => 99,
+                    _ => 1,
+                },
+                penalty: None,
+                penaltyLong: match event.info.clone() {
+                    ApiEventType::Penalty(a) => a.penalty,
+                    _ => None,
+                },
+                reason: match event.info {
+                    ApiEventType::Penalty(a) => a.reason,
+                    _ => None,
+                },
+            }, 
+            timestamp: Utc::now(),
+            id: event.event_id,
+            gametime: event.gametime 
+        }
+    }
+}
+
+
 
 impl From<ApiGameDetails> for LegacyGameDetails {
     fn from(value: ApiGameDetails) -> Self {
@@ -47,7 +151,7 @@ impl From<ApiGameDetails> for LegacyGameDetails {
         LegacyGameDetails { 
             recaps: LegacyRecaps { gameRecap }, 
             gameState: "Finished".to_string(), 
-            events: vec![], //value.events,
+            events: value.events.clone().into_iter().map(|e| (e, value.clone()).into()).collect(),
             status: value.game.status,
         }
     }

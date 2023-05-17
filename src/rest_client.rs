@@ -80,8 +80,8 @@ pub async fn throttle_call<T: DeserializeOwned + Serialize>(url: &str, throttle_
 
 async fn get_call<T: DeserializeOwned>(url: &str) -> Option<T> {
     let before = Instant::now();
-    if let Some(rsp) = reqwest::get(url).await.ok_log("[API] Call failed") {
-        let res = rsp.json().await.ok_log("[API] Parse failed");
+    if let Some(rsp) = reqwest::get(url).await.ok_log(format!("[REST] {} Call failed", url).as_str()) {
+        let res = rsp.json().await.ok_log(format!("[REST] {} Parse failed", url).as_str());
         log::info!("[REST] Call {url} {:.2?}", before.elapsed());
         res
     } else {

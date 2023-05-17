@@ -72,12 +72,13 @@ impl ApiWs {
                         }
                     },
                     _ = tokio::time::sleep(Duration::from_secs(60)) => {
+                        log::info!("[API.WS] ping");
                         // if no broadcast is received, send a ping every 60 sec to ensure connection is open
-                        Message::Ping(vec![])
+                        Message::Ping(vec![42])
                     }
                 };
                 if let Err(e) = sender.send(msg).await {
-                    log::info!("[API.WS] Send error {e}");
+                    log::info!("[API.WS] Error sending {e}");
                     break;
                 }
             }

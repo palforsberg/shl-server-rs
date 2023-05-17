@@ -12,11 +12,13 @@ pub struct Config {
 
     pub sse_url: String,
 
-    #[serde(default)]
-    pub apn_sandbox: bool,
-    #[serde(default)]
+    pub apn_host: String,
+    pub apn_key_path: String,
+    pub apn_key_id: String,
+    pub apn_team_id: String,
     pub apn_topic: String,
 }
+
 impl Config {
     pub fn get_url(&self, league: &League) -> &str {
         match league {

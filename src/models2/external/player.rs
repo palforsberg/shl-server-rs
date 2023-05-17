@@ -57,6 +57,8 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize};
 
+use crate::models::StringOrNum;
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PlayerName {
     pub firstName: String,
@@ -95,7 +97,7 @@ pub struct PlayerStats {
     pub Hits: i32,
     pub NR: i32,
     pub PIM: i32,
-    pub POS: String,
+    pub POS: StringOrNum,
     pub PPG: i32,
     pub PPSOG: i32,
     pub SOG: i32,

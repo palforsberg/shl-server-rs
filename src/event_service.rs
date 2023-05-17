@@ -6,9 +6,9 @@ use crate::{db::Db, rest_client::{self}, models2::external::{event::{PlayByPlayT
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Player {
-    first_name: String,
-    family_name: String,
-    jersey: String,
+    pub first_name: String,
+    pub family_name: String,
+    pub jersey: String,
 }
 impl FromStr for Player {
     type Err = ParseStringError;
@@ -64,7 +64,7 @@ pub struct PenaltyInfo {
 }
 impl PenaltyInfo {
     pub fn new(description: &str, p: &Penalty) -> PenaltyInfo {
-        let (player_info, penalty_info) = description.split_once("utvisas ")
+        let (player_info, penalty_info) = description.split_once(" utvisas ")
             .map(|e| (Some(e.0), Some(e.1)))
             .unwrap_or_else(|| (None, None));
         let (penalty, reason) = penalty_info.unwrap_or_default().split_once(',')

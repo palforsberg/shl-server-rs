@@ -40,7 +40,7 @@ impl ApiGameDetailsService {
 
         let res = Some(ApiGameDetails {
             game: game.clone(),
-            events: events.unwrap_or_default(),
+            events: events.unwrap_or_default().into_iter().rev().collect(),
             stats,
             players,
         });
