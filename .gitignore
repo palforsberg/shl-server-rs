@@ -4,7 +4,10 @@
 /db
 /log
 /.vscode
+/test_db
 
 *_test.rs
 Cargo.lock
 deploy.sh
+
+start_mock.sh

@@ -43,8 +43,6 @@ impl SseClient {
                             }
                             last_event_id = event.hash.clone();
                         }
-                    } else {
-                        log::info!("Empty event");
                     }
                     log::debug!("[SSE] task");
                 }

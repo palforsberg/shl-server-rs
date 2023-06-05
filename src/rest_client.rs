@@ -33,6 +33,7 @@ impl IdentifiableEnum for GameType {
 impl IdentifiableEnum for Season {
     fn get_uuid(&self) -> &str {
         match self {
+            Season::Season2023 => "qcz-3NvSZ2Cmh",
             Season::Season2022 => "qbN-XMFfjGVt",
             Season::Season2021 => "qZl-8qa6OaFXf",
             Season::Season2020 => "qY7-AdVh5z1XJ",
@@ -62,7 +63,7 @@ pub fn get_player_stats_url(league: &League, game_uuid: &str) -> String {
     format!("{}/gameday/boxscore/{game_uuid}", CONFIG.get_url(league))
 }
 
-pub async fn throttle_call<T: DeserializeOwned + Serialize>(url: &str, throttle_s: Option<Duration>) -> Option<T> {
+pub async fn throttle_call<T: DeserializeOwned + Serialize + Clone + Default>(url: &str, throttle_s: Option<Duration>) -> Option<T> {
     let db = Db::<String, T>::new("rest");
 
     if db.is_stale(&url.to_string(), throttle_s) {
@@ -71,6 +72,7 @@ pub async fn throttle_call<T: DeserializeOwned + Serialize>(url: &str, throttle_
             _ = db.write(&url.to_string(), &rsp);
             Some(rsp)
         } else {
+            _ = db.write(&url.to_string(), &rsp.unwrap_or_default());
             None
         }
     } else {

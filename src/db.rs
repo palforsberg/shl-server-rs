@@ -4,19 +4,23 @@ use tracing::log;
 use std::fmt::Display;
 use std::time::{Instant, Duration, SystemTime};
 use walkdir::WalkDir;
+use crate::{CONFIG};
 
 pub struct Db<K: Display, V: DeserializeOwned + Serialize> {
     pub name: String,
     pub key_type: std::marker::PhantomData<K>,
     pub value_type: std::marker::PhantomData<V>,
+
+    sender: tokio::sync::broadcast::Sender<(K, V)>
 }
 
-impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
+impl<K: Display + Clone, V: DeserializeOwned + Serialize + Clone> Db<K, V> {
     pub fn new(name: &str) -> Db<K, V> {
         Db {
             name: name.to_string(),
             key_type: std::marker::PhantomData,
             value_type: std::marker::PhantomData,
+            sender: tokio::sync::broadcast::channel(1000).0,
         }
     }
 
@@ -28,7 +32,7 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
     pub fn read_all(&self) -> Vec<V> {
         let before = Instant::now();
 
-        let path = format!("./db/{}", self.name);
+        let path = format!("{}/{}", CONFIG.db_path, self.name);
         let result: Vec<V> = WalkDir::new(path).into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.metadata().ok().map(|e| e.is_file()).unwrap_or(false))
@@ -40,7 +44,7 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
     }
 
     pub fn stream_all(&self) -> impl Iterator<Item = V> {
-        let path = format!("./db/{}", self.name);
+        let path = format!("{}/{}", CONFIG.db_path, self.name);
         WalkDir::new(path).into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.metadata().ok().map(|e| e.is_file()).unwrap_or(false))
@@ -64,6 +68,7 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
         match result {
             Ok(e) => {
                 log::debug!("[DB] Wrote to file {}/{} {:.2?}", self.name, key, before.elapsed());
+                _ = self.sender.send((key.clone(), obj.clone()));
                 Ok(e)
             },
             Err(e) => {
@@ -87,6 +92,10 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
             .unwrap_or(true) // file doesn't exists => stale
     }
 
+    // pub fn listen(&self) -> tokio::sync::broadcast::Receiver<(K, V)> {
+    //     self.sender.subscribe()
+    // }
+
     fn read_file(path: &str) -> Option<V> {
         let before = Instant::now();
         let data = std::fs::read_to_string(path).ok()?;
@@ -102,6 +111,6 @@ impl<K: Display, V: DeserializeOwned + Serialize> Db<K, V> {
     }
 
     fn get_path(&self, key: &str) -> String {
-        format!("./db/{}/{}", self.name, key)
+        format!("{}/{}/{}", CONFIG.db_path, self.name, key)
     }
 }

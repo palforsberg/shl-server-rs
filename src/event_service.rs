@@ -17,7 +17,7 @@ impl FromStr for Player {
         let parts: Vec<&str> = s.split(' ').collect();
         let jersey = parts.first().cloned().unwrap_or_default().to_string(); 
         let first_name = parts.get(1).cloned().unwrap_or_default().to_string();
-        let family_name = s.replace(format!("{jersey} {first_name}").as_str(), "");
+        let family_name = s.replace(format!("{jersey} {first_name} ").as_str(), "");
         Ok(Player { jersey, first_name, family_name })
     }
 }
@@ -91,6 +91,13 @@ pub struct GameEndInfo {
     pub winner: Option<String>,
 }
 
+#[derive(PartialEq)]
+pub enum ApiEventTypeLevel {
+    Low, // only websocket
+    Medium, // live activity, show in UI
+    High // alert
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "type", content = "info")]
 pub enum ApiEventType {
@@ -103,6 +110,21 @@ pub enum ApiEventType {
     Shot(ShotInfo),
     Timeout,
     General,
+}
+impl ApiEventType {
+    pub fn get_level(&self) -> ApiEventTypeLevel {
+        match self {
+            Self::Goal(_) => ApiEventTypeLevel::High,
+            Self::GameStart => ApiEventTypeLevel::High,
+            Self::GameEnd(_) => ApiEventTypeLevel::High,
+            Self::Penalty(_) => ApiEventTypeLevel::Medium,
+            Self::PeriodStart => ApiEventTypeLevel::Medium,
+            Self::PeriodEnd => ApiEventTypeLevel::Medium,
+            Self::Timeout => ApiEventTypeLevel::Medium,
+            Self::Shot(_) => ApiEventTypeLevel::Low,
+            Self::General => ApiEventTypeLevel::Low,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -117,11 +139,6 @@ pub struct ApiGameEvent {
     pub info: ApiEventType,
 }
 
-impl ApiGameEvent {
-    pub fn should_notify(&self) -> bool {
-        matches!(self.info, ApiEventType::Goal(_) | ApiEventType::GameStart | ApiEventType::GameEnd(_))
-    }
-}
 impl Display for ApiGameEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?} {} :: {:?} • {}", self.info, self.description, self.status, self.gametime)

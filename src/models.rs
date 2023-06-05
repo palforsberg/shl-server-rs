@@ -41,6 +41,7 @@ impl FromStr for GameType {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Season {
+    Season2023,
     Season2022,
     Season2021,
     Season2020,
@@ -50,13 +51,13 @@ pub enum Season {
 
 impl Season {
     pub fn get_current() -> Season {
-        Season::Season2022
+        Season::Season2023
     }
     pub fn is_current(&self) -> bool {
         self == &Season::get_current()
     }
     pub fn get_all() -> Vec<Season> {
-        vec![Season::Season2018, Season::Season2019, Season::Season2020, Season::Season2021, Season::Season2022]
+        vec![Season::Season2018, Season::Season2019, Season::Season2020, Season::Season2021, Season::Season2022, Season::Season2023]
     }
 }
 impl FromStr for Season {
@@ -64,6 +65,8 @@ impl FromStr for Season {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "2023" => Ok(Season::Season2023),
+            "Season2023" => Ok(Season::Season2023),
             "2022" => Ok(Season::Season2022),
             "Season2022" => Ok(Season::Season2022),
             "2021" => Ok(Season::Season2021),

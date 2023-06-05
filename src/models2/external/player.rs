@@ -120,7 +120,7 @@ pub struct StatsColumn {
     pub stats_type: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct PlayerStatsRsp {
     pub dataColumns: Vec<StatsColumn>,
     #[serde(default)]

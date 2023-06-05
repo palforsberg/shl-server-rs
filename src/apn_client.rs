@@ -1,61 +1,110 @@
 
-use std::fmt::Display;
+use std::{fmt::Display};
 
 use crate::{api_season_service::ApiGame, event_service::ApiGameEvent, CONFIG};
-use axum::http::{HeaderMap, HeaderValue};
+use axum::{http::{HeaderMap, HeaderValue}};
 use chrono::{DateTime, Utc, Duration};
 use jsonwebtoken::{Header, EncodingKey};
-use reqwest::Response;
-use serde::{Serialize};
+use reqwest::StatusCode;
+use serde::{Serialize, Deserialize};
 use tracing::log;
 
 pub struct ApnClient {
-    base_url: String,
+    apn_host: String,
     team_id: String,
     key_id: String,
     key_path: String,
     token: Option<Token>
 }
 
+#[derive(Debug)]
+pub enum ApnError {
+    BadDeviceToken,
+    Other,
+}
+impl Display for ApnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadDeviceToken => write!(f, "BadDeviceToken"),
+            Self::Other => write!(f, "Other"),
+        }
+    }
+}
+impl std::error::Error for ApnError {}
+
 impl ApnClient {
     pub fn new() -> ApnClient {
         let mut a = ApnClient { 
-            base_url: CONFIG.apn_host.to_string(), 
+            apn_host: CONFIG.apn_host.to_string(), 
             team_id: CONFIG.apn_team_id.to_string(), 
             key_id: CONFIG.apn_key_id.to_string(), 
             key_path: CONFIG.apn_key_path.to_string(),
             token: None,
         };
-        a.get_token().unwrap();
+        a.update_token();
         a
     }
 
-    pub async fn push<CT, D>(&mut self, push: &ApnPush<CT, D>, device_token: String) -> Result<Response, anyhow::Error> {
-        let c = reqwest::Client::new();
-        
-        let response = c
-            .post(format!("{}/{}", self.base_url, device_token))
-            .bearer_auth(self.get_token()?)
-            .headers(push.header.clone().try_into()?)
+    pub async fn push_notification<CT : Serialize, D : Serialize>(&self, push: ApnPush<CT, D>, device_token: String) -> anyhow::Result<(), ApnError> {
+        let c = match reqwest::Client::builder()
+            .http2_prior_knowledge()
+            .http2_keep_alive_interval(std::time::Duration::from_secs(60 * 55))
+            .http2_keep_alive_timeout(std::time::Duration::from_secs(60 * 55))
+            .http2_keep_alive_while_idle(true)
+            .build() {
+                Ok(e) => e,
+                Err(_) => { return Err(ApnError::Other); }
+            };
+        let headers = match push.header.clone().try_into() {
+            Ok(e) => e,
+            Err(_) => { return Err(ApnError::Other); },
+        };
+        let response = match c
+            .post(format!("https://{}/3/device/{}", self.apn_host, device_token))
+            .bearer_auth(&self.token.as_ref().expect("").value)
+            .headers(headers)
+            .json(&push.body)
             .send()
-            .await?;
+            .await {
+                Ok(e) => e,
+                Err(e) => {
+                    log::error!("[APN] Request failed {e}");
+                    return Err(ApnError::Other);
+                }
+            };
 
-        Ok(response)
+        if response.status() == StatusCode::OK {
+            log::info!("[APN] Notified {}", device_token);
+            return Ok(());
+        }
+        
+        let body: ApnResponse = match response.json().await {
+            Ok(e) => e,
+            Err(e) => {
+                log::error!("[APN] Failed parsing response {e}");
+                return Err(ApnError::Other);
+            } 
+        };
+        log::error!("[APN] Failed notifying {} {:?}", device_token, body.reason);
+        if body.reason == Some("BadDeviceToken".to_string()) {
+            Err(ApnError::BadDeviceToken)
+        } else {
+            Err(ApnError::Other)
+        }
+
     }
 
-    fn get_token(&mut self) -> Result<String, anyhow::Error> {
+    pub fn update_token(&mut self) {
         if let Some(token) = &self.token {
             if Utc::now() - token.expiration < Duration::minutes(55) {
-                return Ok(token.value.to_string())
+                return
             }
         }
-        let token = ApnClient::create_token(&self.team_id, &self.key_id, &self.key_path)?;
-        let token_str = token.value.clone();
+        let token = ApnClient::create_token(&self.team_id, &self.key_id, &self.key_path);
         self.token = Some(token);
-        Ok(token_str)
     }
 
-    fn create_token(team_id: &str, key_id: &str, key_path: &str) -> Result<Token, anyhow::Error> {
+    fn create_token(team_id: &str, key_id: &str, key_path: &str) -> Token {
         let claims = Claims {
             iss: team_id.to_string(),
             iat: Utc::now().timestamp(),
@@ -65,14 +114,19 @@ impl ApnClient {
             kid: Some(key_id.to_string()),
             ..Default::default()
         };
-        let key_file = std::fs::read(key_path)?;
-        let key = EncodingKey::from_ec_pem(&key_file)?;
-        let token = jsonwebtoken::encode(&header, &claims, &key)?;
+        let key_file = std::fs::read(key_path).expect("[APN] Cant read key file");
+        let key = EncodingKey::from_ec_pem(&key_file).expect("[APN] Cant encode token");
+        let token = jsonwebtoken::encode(&header, &claims, &key).expect("[APN] Cant create jwt");
         log::info!("[APN] Created token");
-        Ok(Token { value: token, expiration: Utc::now() })
+        Token { value: token, expiration: Utc::now() }
     }
 }
 
+
+#[derive(Deserialize)]
+struct ApnResponse {
+    reason: Option<String>,
+}
 
 struct Token {
     value: String,
@@ -100,7 +154,7 @@ pub struct LiveActivityContentState {
 
 #[derive(Serialize, Default)]
 #[serde(rename_all="kebab-case")]
-pub struct ApnAps<T> {
+pub struct ApnAps<T : Serialize> {
     pub alert: Option<ApnAlert>,
     pub mutable_content: Option<u8>,
     pub content_available: Option<u8>,
@@ -109,34 +163,37 @@ pub struct ApnAps<T> {
 
     pub event: Option<String>,
     pub relevance_score: Option<u8>,
-    pub stale_date: Option<u32>,
-    pub timestamp: Option<u32>,
+    pub stale_date: Option<i64>,
+    pub timestamp: Option<i64>,
     pub content_state: T,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all="kebab-case")]
-pub struct ApnBody<CS, D> {
+pub struct ApnBody<CS : Serialize, D : Serialize> {
     pub aps: ApnAps<CS>,
     #[serde(flatten)]
     pub data: D,
+
+    #[serde(rename="localAttachements")]
+    pub local_attachements: Vec<String>,
 }
 
-pub struct ApnPush<CT, D> {
+pub struct ApnPush<CS : Serialize, D : Serialize> {
     pub header: ApnHeader,
-    pub body: ApnBody<CT, D>,
+    pub body: ApnBody<CS, D>,
 }
 
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, Serialize, PartialEq, Debug)]
 pub enum ApnPushType {
     LiveActivity,
-    Notification,
+    Alert,
 }
 impl Display for ApnPushType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::LiveActivity => write!(f, "liveactivity"),
-            Self::Notification => write!(f, "notification"),
+            Self::Alert => write!(f, "alert"),
         }
     }
 }
@@ -147,7 +204,7 @@ pub struct ApnHeader {
     pub priority: usize,
     pub topic: String,
     pub collapse_id: Option<String>,
-    pub expiration: Option<u32>,
+    pub expiration: Option<i64>,
 }
 
 impl TryFrom<ApnHeader> for HeaderMap {

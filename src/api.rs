@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum::{Router, extract::{Path, State, WebSocketUpgrade}, response::IntoResponse, Json};
+use axum::{Router, extract::{Path, State, WebSocketUpgrade}, response::IntoResponse, Json, routing::{get, post}};
 use reqwest::StatusCode;
 use serde::{Deserialize};
 use tokio::{sync::{RwLock, broadcast::Sender}};
@@ -8,7 +8,7 @@ use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tracing::log;
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::game_details::LegacyGameDetails};
+use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -31,25 +31,26 @@ impl Api {
             nr_ws: Arc::new(RwLock::new(0)),
         };
         let app = Router::new()
-            .route("/games/:season", axum::routing::get(Api::get_games))
-            .route("/game/:game_uuid/:game_id", axum::routing::get(Api::get_legacy_game_details))
-            .route("/game/:game_uuid", axum::routing::get(Api::get_game_details))
-            .route("/teams", axum::routing::get(Api::get_teams))
-            .route("/rankings/:season", axum::routing::get(Api::get_leagues))
-            .route("/standings/:season", axum::routing::get(Api::get_legacy_standings))
-            .route("/playoffs/:season", axum::routing::get(Api::get_playoffs))
-            .route("/players/:team", axum::routing::get(Api::get_players))
+            .route("/games/:season", get(Api::get_games))
+            .route("/game/:game_uuid/:game_id", get(Api::get_legacy_game_details))
+            .route("/game/:game_uuid", get(Api::get_game_details))
+            .route("/teams", get(Api::get_teams))
+            .route("/rankings/:season", get(Api::get_leagues))
+            .route("/standings/:season", get(Api::get_legacy_standings))
+            .route("/playoffs/:season", get(Api::get_playoffs))
+            .route("/players/:team/:season", get(Api::get_players))
+            .route("/players/:team", get(Api::get_legacy_players))
     
-            .route("/live-activity/start", axum::routing::post(Api::start_live_activity))
-            .route("/live-activity/end", axum::routing::post(Api::end_live_activity))
+            .route("/live-activity/start", post(Api::start_live_activity))
+            .route("/live-activity/end", post(Api::end_live_activity))
 
-            .route("/vote", axum::routing::post(Api::vote))
+            .route("/vote", post(Api::vote))
 
-            .route("/user", axum::routing::post(Api::add_user))
+            .route("/user", post(Api::add_user))
 
-            .route("/ws", axum::routing::get(Api::ws_handler))
+            .route("/ws", get(Api::ws_handler))
     
-            .route("/", axum::routing::get(Api::root))
+            .route("/", get(Api::root))
             .with_state(state)
             .layer(ServiceBuilder::new()
                 .layer(CompressionLayer::new()) // adds 50ms
@@ -108,21 +109,35 @@ impl Api {
         }
     }
     
-    async fn get_players() -> impl IntoResponse {
-        (StatusCode::NOT_FOUND, "404".to_string())
+    async fn get_legacy_players(Path(team): Path<String>) -> impl IntoResponse {
+        let db = ApiPlayerStatsService::get_team_player_db();
+        let data: Vec<LegacyPlayerStats> = db.read(&TeamSeasonKey(Season::get_current(), team))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.into())
+            .collect();
+        Json(data)
     }
+
+    async fn get_players(Path((season, team)): Path<(String, String)>) -> impl IntoResponse {
+        if let Ok(e) = season.parse() {
+            let db = ApiPlayerStatsService::get_team_player_db();
+            (StatusCode::OK, db.read_raw(&TeamSeasonKey(e, team)))
+        } else {
+            (StatusCode::NOT_FOUND, "404".to_string())
+        }
+    } 
 
     async fn get_playoffs() -> impl IntoResponse {
         (StatusCode::NOT_FOUND, "404".to_string())
     }
     
-    async fn start_live_activity() -> impl IntoResponse {
-        (StatusCode::NOT_FOUND, "404".to_string())
+    async fn start_live_activity(Json(req): Json<StartLiveActivity>) -> impl IntoResponse {
+        UserService::start_live_activity(&req);
     }
-    
-    
-    async fn end_live_activity() -> impl IntoResponse {
-        (StatusCode::NOT_FOUND, "404".to_string())
+
+    async fn end_live_activity(Json(req): Json<EndLiveActivity>) -> impl IntoResponse {
+        UserService::end_live_activity(&req.user_id, &req.game_uuid);
     }
 
     async fn vote(State(state): State<ApiState>, Json(vote): Json<VoteBody>) -> impl IntoResponse {
@@ -167,4 +182,18 @@ pub struct AddUser {
     pub apn_token: Option<String>,
     pub ios_version: Option<String>,
     pub app_version: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct StartLiveActivity {
+    pub user_id: String,
+    pub token: String,
+    pub game_uuid: String,
+}
+
+
+#[derive(Deserialize)]
+pub struct EndLiveActivity {
+    pub user_id: String,
+    pub game_uuid: String,
 }

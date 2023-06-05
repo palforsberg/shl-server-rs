@@ -3,6 +3,7 @@
 use std::fmt::Display;
 use std::time::Duration;
 use api::{Api};
+use api_player_stats_service::ApiPlayerStatsService;
 use api_season_service::{SafeApiSeasonService};
 use api_teams_service::ApiTeamsService;
 use api_ws::WsMsg;
@@ -20,13 +21,13 @@ use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
 use crate::notification_service::{NotificationService};
 use crate::report_state_machine::{ReportStateMachine, ApiSseMsg};
-use crate::event_service::{EventService, ApiEventType};
+use crate::event_service::{EventService, ApiEventType, ApiEventTypeLevel};
 use crate::game_report_service::{GameReportService, ApiGameReport, GameStatus};
-use crate::models2::external::season::SeasonTeam;
 use crate::player_service::PlayerService;
 use crate::sse_client::{SseClient};
 use crate::season_service::SeasonService;
 use crate::stats_service::StatsService;
+use crate::user_service::UserService;
 use tracing::{log};
 use lazy_static::lazy_static;
 
@@ -53,6 +54,9 @@ mod fetch_details_service;
 mod user_service;
 mod notification_service;
 mod apn_client;
+mod in_mem_games;
+mod migrate;
+mod api_player_stats_service;
 
 #[cfg(test)]
 mod mock_test;
@@ -82,14 +86,22 @@ async fn main() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
+    // Migrate::migrate_users();
+
     let api_season_service = ApiSeasonService::new();
     let vote_service = VoteService::new();
     for season in Season::get_all() {
         let (responses, _) = SeasonService { }.update(&season).await;
         let api_games = api_season_service.write().await.update(&season, &responses);
-        ApiTeamsService::add(&responses.into_iter().flat_map(|e| e.1.teamList.into_iter()).collect::<Vec<SeasonTeam>>());
+        for r in responses {
+            ApiTeamsService::add(&r.1.teamList, r.0.1);
+        }
+        
         StandingService::update(&season, &api_games);
     }
+    
+    let all_games = ApiSeasonService::read_all();
+    ApiPlayerStatsService::update(&all_games);
 
     let (live_game_sender, live_game_receiver) = mpsc::channel(1000);
     let (sse_msg_sender, sse_msg_receiver) = mpsc::channel(1000);
@@ -120,8 +132,12 @@ async fn start_loop(
         let (responses, updated) = season_service.update(&season).await;
         if updated {
             let api_games = api_season_service.write().await.update(&season, &responses);
-            ApiTeamsService::add(&responses.iter().flat_map(|e| e.1.teamList.clone().into_iter()).collect::<Vec<SeasonTeam>>());
+            for r in &responses {
+                ApiTeamsService::add(&r.1.teamList, r.0.1.clone());
+            }
+            
             StandingService::update(&season, &api_games);
+            ApiPlayerStatsService::update(&api_games);
         }
 
         FetchDetailsService::update().await;
@@ -156,8 +172,8 @@ async fn game_start_end_listener(
             let (uuid, sse_sender, ass) = (game_uuid.clone(), sse_msg_sender.clone(), api_season_service.clone());
             tokio::spawn(async move {
                 log::info!("[SSE] Start SSE {uuid}");
-                let (handle, mut report_receiver, mut event_receiver) = SseClient::spawn_listener(&uuid).await;
                 let mut rsm = ReportStateMachine::new();
+                let (handle, mut report_receiver, mut event_receiver) = SseClient::spawn_listener(&uuid).await;
                 loop {
                     select! {
                         Some((game_uuid, report)) = report_receiver.recv() => {
@@ -191,6 +207,13 @@ async fn game_start_end_listener(
     }
 }
 
+
+/**
+ * SSE
+ * Layer 1: Receive events, handle idempotency + errors
+ * Layer 2: Map from external to internal. Store
+ * Layer 3: Handle updates of stats, players, ws, notifications.
+ */
 async fn handle_sse_events(
     api_season_service: SafeApiSeasonService,
     mut sse_msg_receiver: Receiver<(String, ApiSseMsg)>, 
@@ -206,12 +229,15 @@ async fn handle_sse_events(
                     log::info!("[SSE] REPORT {report}");
                     GameReportService::store(&game_uuid, &report);
                     
-                    broadcast_sender.send(report.clone().into())
-                        .ok_log("[SSE] Failed to broadcast report");
+                    _ = broadcast_sender.send(report.clone().into());
 
                     let updated_api_game = api_season_service.write().await.update_from_report(&report);
                     if let Some(g) = updated_api_game {
-                        let last_event = EventService::read(&game_uuid).last().cloned();
+                        let last_event = EventService::read(&game_uuid)
+                            .iter()
+                            .filter(|e| e.info.get_level() != ApiEventTypeLevel::Low)
+                            .last()
+                            .cloned();
                         notification_service.process_live_activity(&g, last_event.as_ref()).await;
 
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
@@ -227,8 +253,8 @@ async fn handle_sse_events(
                         }
                     }
 
-                    broadcast_sender.send(event.clone().into())
-                        .ok_log("[SSE] Failed to broadcast event");
+                    _ = broadcast_sender.send(event.clone().into());
+                        // .ok_log("[SSE] Failed to broadcast event");
 
                     if let Some(g) = api_season_service.read().await.read_current_season_game(&game_uuid) {
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
@@ -242,6 +268,7 @@ async fn handle_sse_events(
                             if let Some(g) = season_service.read().await.read_current_season_game(&game_uuid) {
                                 StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                                 PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
+                                UserService::remove_references_to(&game_uuid);
                                 log::info!("[SSE] Updated");
                             }
                         });

@@ -28,10 +28,9 @@ pub struct ApiGame {
     pub gametime: Option<String>,
 }
 
-
 pub struct ApiSeasonService {
     current_season_in_mem: Vec<ApiGame>,
-    db: Db<Season, Vec<ApiGame>>,
+    pub db: Db<Season, Vec<ApiGame>>,
 }
 pub type SafeApiSeasonService = Arc<RwLock<ApiSeasonService>>;
 impl ApiSeasonService {
@@ -88,13 +87,13 @@ impl ApiSeasonService {
 
     pub fn update_from_report(&mut self, report: &ApiGameReport) -> Option<ApiGame> {
         let mut result = None;
-        if let Some(pos) = self.current_season_in_mem.iter().position(|e| e.game_uuid == report.game_uuid) {
-            self.current_season_in_mem[pos].status = report.status.clone();
-            self.current_season_in_mem[pos].home_team_result = report.home_team_result;
-            self.current_season_in_mem[pos].away_team_result = report.away_team_result;
-            self.current_season_in_mem[pos].gametime = Some(report.gametime.clone());
-            result = Some(self.current_season_in_mem[pos].clone());
-
+        if let Some(pos) = self.current_season_in_mem.iter_mut().find(|e| e.game_uuid == report.game_uuid) {
+            pos.status = report.status.clone();
+            pos.home_team_result = report.home_team_result;
+            pos.away_team_result = report.away_team_result;
+            pos.gametime = Some(report.gametime.clone());
+            result = Some(pos.clone());
+            
             _ = self.db.write(&Season::Season2022, &self.current_season_in_mem);
         }
         result

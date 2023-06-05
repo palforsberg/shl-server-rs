@@ -6,7 +6,7 @@ use crate::{models::League, rest_client, models2::external::{player::{PlayerStat
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PlayerStats {
+pub struct PlayerGameStats {
     pub id: i32,
     pub first_name: String,
     pub family_name: String,
@@ -27,11 +27,11 @@ pub struct PlayerStats {
     pub pim: i32,
     pub sog: i32,
     pub sw: i32,
-    pub toi: String,
+    pub toi_s: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GoalkeeperStats {
+pub struct GoalkeeperGameStats {
     pub id: i32,
     pub first_name: String,
     pub family_name: String,
@@ -48,15 +48,15 @@ pub struct GoalkeeperStats {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Players {
-    pub players: Vec<PlayerStats>,
-    pub goalkeepers: Vec<GoalkeeperStats>,
+    pub players: Vec<PlayerGameStats>,
+    pub goalkeepers: Vec<GoalkeeperGameStats>,
 }
 
-impl From<(PlayerName, external::player::GoalkeeperStats)> for GoalkeeperStats {
+impl From<(PlayerName, external::player::GoalkeeperStats)> for GoalkeeperGameStats {
     fn from(value: (PlayerName, external::player::GoalkeeperStats)) -> Self {
         let gk_info = value.0;
         let gk = value.1;
-        GoalkeeperStats {
+        GoalkeeperGameStats {
             id: gk.info.playerId,
             first_name: gk_info.firstName,
             family_name:  gk_info.lastName,
@@ -70,11 +70,17 @@ impl From<(PlayerName, external::player::GoalkeeperStats)> for GoalkeeperStats {
         }
     }
 }
-impl From<(PlayerName, external::player::PlayerStats)> for PlayerStats {
+fn parse_toi(s: &str) -> i32 {
+    let (min_str, secs_str) = s.split_once(':').unwrap_or(("0", "0"));
+    let min: i32 = min_str.parse().ok().unwrap_or_default();
+    let secs: i32 = secs_str.parse().ok().unwrap_or_default();
+    min * 60 + secs
+}
+impl From<(PlayerName, external::player::PlayerStats)> for PlayerGameStats {
     fn from(value: (PlayerName, external::player::PlayerStats)) -> Self {
         let p_info = value.0;
         let p = value.1;
-        PlayerStats {
+        PlayerGameStats {
             id: p.info.playerId,
             first_name: p_info.firstName,
             family_name: p_info.lastName,
@@ -91,7 +97,7 @@ impl From<(PlayerName, external::player::PlayerStats)> for PlayerStats {
             pim: p.PIM,
             sog: p.SOG,
             sw: p.SW,
-            toi: p.TOI,
+            toi_s: parse_toi(&p.TOI),
         }
     }
 }
@@ -126,6 +132,13 @@ impl PlayerService {
         let url = rest_client::get_player_stats_url(league, game_uuid);
         let rsp: Option<PlayerStatsRsp> = rest_client::throttle_call(&url, throttle_s).await;
         rsp.map(|e| e.into()).unwrap_or_default()
+    }
+
+    pub fn read(league: &League, game_uuid: &str) -> Option<Players> {
+        let db = Db::<String, PlayerStatsRsp>::new("rest");
+        let url = rest_client::get_player_stats_url(league, game_uuid);
+        let rsp: Option<PlayerStatsRsp> = db.read(&url);
+        rsp.map(|e| e.into())
     }
 
     pub fn is_stale(league: &League, game_uuid: &str) -> bool {

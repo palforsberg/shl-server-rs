@@ -18,7 +18,7 @@ pub struct PeriodStatsBreakdown {
     pub period: Period,
     pub statistics: Vec<Statistics>,
 }
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct StatsRsp {
     pub period_stats_breakdown: Vec<PeriodStatsBreakdown>,
 }
