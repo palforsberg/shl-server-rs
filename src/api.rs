@@ -38,6 +38,7 @@ impl Api {
             .route("/rankings/:season", get(Api::get_leagues))
             .route("/standings/:season", get(Api::get_legacy_standings))
             .route("/playoffs/:season", get(Api::get_playoffs))
+            .route("/player/:player_id", get(Api::get_player))
             .route("/players/:team/:season", get(Api::get_players))
             .route("/players/:team", get(Api::get_legacy_players))
     
@@ -111,7 +112,7 @@ impl Api {
     
     async fn get_legacy_players(Path(team): Path<String>) -> impl IntoResponse {
         let db = ApiPlayerStatsService::get_team_player_db();
-        let data: Vec<LegacyPlayerStats> = db.read(&TeamSeasonKey(Season::get_current(), team))
+        let data: Vec<LegacyPlayerStats> = db.read(&TeamSeasonKey(Season::Season2022, team))
             .unwrap_or_default()
             .into_iter()
             .map(|e| e.into())
@@ -127,6 +128,12 @@ impl Api {
             (StatusCode::NOT_FOUND, "404".to_string())
         }
     } 
+
+    async fn get_player(Path(player_id): Path<i32>) -> impl IntoResponse {
+        let db = ApiPlayerStatsService::get_player_career_db();
+        db.read_raw(&player_id)
+    } 
+
 
     async fn get_playoffs() -> impl IntoResponse {
         (StatusCode::NOT_FOUND, "404".to_string())

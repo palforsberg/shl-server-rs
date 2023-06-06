@@ -1,4 +1,4 @@
-use std::{time::Instant, sync::Arc};
+use std::{time::Instant, sync::Arc, collections::HashMap};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,7 @@ pub struct ApiGame {
 
 pub struct ApiSeasonService {
     current_season_in_mem: Vec<ApiGame>,
+    rest_games: HashMap<String, ApiGame>,
     pub db: Db<Season, Vec<ApiGame>>,
 }
 pub type SafeApiSeasonService = Arc<RwLock<ApiSeasonService>>;
@@ -37,6 +38,7 @@ impl ApiSeasonService {
     pub fn new() -> SafeApiSeasonService {
         Arc::new(RwLock::new(ApiSeasonService { 
             current_season_in_mem: vec!(),
+            rest_games: HashMap::new(),
             db: Db::<Season, Vec<ApiGame>>::new("v2_season_decorated")
         }))
     }
@@ -81,6 +83,10 @@ impl ApiSeasonService {
         _ = self.db.write(season, &decorated_games);
         if season.is_current() {
             self.current_season_in_mem = decorated_games.clone();
+        } else {
+            for ele in &decorated_games {
+                self.rest_games.insert(ele.game_uuid.clone(), ele.clone());
+            }
         }
         decorated_games
     }
@@ -94,7 +100,7 @@ impl ApiSeasonService {
             pos.gametime = Some(report.gametime.clone());
             result = Some(pos.clone());
             
-            _ = self.db.write(&Season::Season2022, &self.current_season_in_mem);
+            _ = self.db.write(&pos.season.clone(), &self.current_season_in_mem);
         }
         result
     }
@@ -104,6 +110,15 @@ impl ApiSeasonService {
             .iter()
             .find(|e| e.game_uuid == game_uuid)
             .cloned()
+    }
+
+    pub fn read_game(&self, game_uuid: &str) -> Option<ApiGame> {
+        let current_season_game = self.read_current_season_game(game_uuid);
+        if current_season_game.is_some() {
+            current_season_game
+        } else {
+            self.rest_games.get(&game_uuid.to_string()).cloned()
+        }
     }
 
     pub fn read_raw(season: &Season) -> String {

@@ -25,8 +25,7 @@ impl ApiGameDetailsService {
     }
     pub async fn read(&self, game_uuid: &str) -> Option<ApiGameDetails> {
         let before = Instant::now();
-        // todo: no details for previous seasons
-        let game = self.api_season_service.read().await.read_current_season_game(game_uuid);
+        let game = self.api_season_service.read().await.read_game(game_uuid);
         if let Some(GameStatus::Coming) = game.as_ref().map(|e| e.status.clone()) {
             return Some(ApiGameDetails { game: game.unwrap(), events: vec!(), stats: None, players: Players::default() });
         }

@@ -35,7 +35,7 @@ impl std::fmt::Display for TeamSeasonKey {
 
 // type PlayerKey = i32; // => Vec<PlayerSeasonStats>
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ApiPlayerSeasonStats {
     pub player_id: i32,
     pub first_name: String,
@@ -47,7 +47,7 @@ pub struct ApiPlayerSeasonStats {
     pub stats: SeasonStats,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Default)]
 pub struct PlayerPlayerSeasonStats {
     pub a: i32,
     pub g: i32,
@@ -60,7 +60,7 @@ pub struct PlayerPlayerSeasonStats {
     pub hits: i32,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Default)]
 pub struct GoalkeeperSeasonStats {
     pub ga: i32,
     pub soga: i32,
@@ -69,7 +69,7 @@ pub struct GoalkeeperSeasonStats {
     pub gp: i32,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum SeasonStats {
     Player(PlayerPlayerSeasonStats),
     Goalkeeper(GoalkeeperSeasonStats),
@@ -90,70 +90,46 @@ impl ApiPlayerStatsService {
         for (game, stats) in all_players {
             for e in stats.players {
                 let key = PlayerSeasonKey(e.id, game.season.clone(), e.team_code.clone());
-
-                if let Some(player_sum) = player_map.get_mut(&key) {
-                    if let SeasonStats::Player(player_stats) = &mut player_sum.stats {
-                        player_stats.a += e.a;
-                        player_stats.g += e.g;
-                        player_stats.gp += 1;
-                        player_stats.sog += e.sog;
-                        player_stats.pim += e.pim;
-                        player_stats.plus_minus += e.plus_minus;
-                        player_stats.toi_s += e.toi_s;
-                        player_stats.fow += e.fow;
-                        player_stats.hits += e.hits;
-                    }
-                } else {
-                    player_map.insert(key.clone(), ApiPlayerSeasonStats {
-                        player_id: e.id, 
-                        season: game.season.clone(),
-                        team: e.team_code.clone(), 
-                        position: e.position.clone(),
-                        first_name: e.first_name.clone(),
-                        family_name: e.family_name.clone(),
-                        jersey: e.jersey,
-                        stats: SeasonStats::Player(PlayerPlayerSeasonStats {
-                            a: e.a,
-                            g: e.g,
-                            plus_minus: e.plus_minus,
-                            sog: e.sog,
-                            gp: 1,
-                            toi_s: e.toi_s,
-                            pim: e.pim,
-                            fow: e.fow,
-                            hits: e.hits,
-                        })
-                    });
+                let entry = player_map.entry(key).or_insert_with(|| ApiPlayerSeasonStats {
+                    player_id: e.id, 
+                    season: game.season.clone(),
+                    team: e.team_code.clone(), 
+                    position: e.position.clone(),
+                    first_name: e.first_name.clone(),
+                    family_name: e.family_name.clone(),
+                    jersey: e.jersey,
+                    stats: SeasonStats::Player(PlayerPlayerSeasonStats { ..Default::default() })
+                });
+                if let SeasonStats::Player(player_stats) = &mut entry.stats {
+                    player_stats.a += e.a;
+                    player_stats.g += e.g;
+                    player_stats.gp += 1;
+                    player_stats.sog += e.sog;
+                    player_stats.pim += e.pim;
+                    player_stats.plus_minus += e.plus_minus;
+                    player_stats.toi_s += e.toi_s;
+                    player_stats.fow += e.fow;
+                    player_stats.hits += e.hits;
                 }
             }
             for e in stats.goalkeepers {
                 let key = PlayerSeasonKey(e.id, game.season.clone(), e.team_code.clone());
-            
-                if let Some(player_sum) = player_map.get_mut(&key) {
-                    if let SeasonStats::Goalkeeper(a) = &mut player_sum.stats {
-                        a.ga += e.ga;
-                        a.soga += e.soga;
-                        a.spga += e.spga;
-                        a.svs += e.svs;
-                        a.gp += match e.svs > 0 { true => 1, false => 0 };
-                    }
-                } else {
-                    player_map.insert(key.clone(), ApiPlayerSeasonStats {
-                        player_id: e.id, 
-                        season: game.season.clone(),
-                        team: e.team_code.clone(), 
-                        position: "GK".to_string(),
-                        first_name: e.first_name.clone(),
-                        family_name: e.family_name.clone(),
-                        jersey: e.jersey,
-                        stats: SeasonStats::Goalkeeper(GoalkeeperSeasonStats {
-                            ga: e.ga,
-                            soga: e.soga,
-                            spga: e.spga,
-                            svs: e.svs,
-                            gp: match e.svs > 0 { true => 1, false => 0, }
-                        })
-                    });
+                let entry = player_map.entry(key).or_insert_with(|| ApiPlayerSeasonStats {
+                    player_id: e.id, 
+                    season: game.season.clone(),
+                    team: e.team_code.clone(), 
+                    position: "GK".to_string(),
+                    first_name: e.first_name.clone(),
+                    family_name: e.family_name.clone(),
+                    jersey: e.jersey,
+                    stats: SeasonStats::Goalkeeper(GoalkeeperSeasonStats { ..Default::default() })
+                });
+                if let SeasonStats::Goalkeeper(a) = &mut entry.stats {
+                    a.ga += e.ga;
+                    a.soga += e.soga;
+                    a.spga += e.spga;
+                    a.svs += e.svs;
+                    a.gp += match e.svs > 0 { true => 1, false => 0 };
                 }
             }
         }
