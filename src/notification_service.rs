@@ -4,7 +4,7 @@ use chrono::{Utc, Duration};
 use futures::{future::join_all, FutureExt};
 use tracing::log;
 
-use crate::{event_service::{ApiGameEvent, ApiEventType, ApiEventTypeLevel}, api_season_service::ApiGame, user_service::{UserService, User}, apn_client::{ApnClient, ApnPush, ApnAlert, ApnBody, ApnHeader, ApnAps, LiveActivityContentState, ApnPushType, ApnError}, CONFIG, api_teams_service::{TeamsMap}, game_report_service::GameStatus};
+use crate::{event_service::{ApiGameEvent, ApiEventType, ApiEventTypeLevel, EventService}, api_season_service::ApiGame, user_service::{UserService, User}, apn_client::{ApnClient, ApnPush, ApnAlert, ApnBody, ApnHeader, ApnAps, LiveActivityContentState, ApnPushType, ApnError, LiveActivityReport, LiveActivityEvent}, CONFIG, api_teams_service::{TeamsMap}, game_report_service::GameStatus};
 
 impl ApiGameEvent {
     fn get_time_info(&self) -> String {
@@ -35,13 +35,12 @@ impl ApiGameEvent {
 }
 impl ApnAlert {
     fn from(game: &ApiGame, event: &ApiGameEvent, teams: &TeamsMap, user_teams: &[String]) -> ApnAlert {
-
-        let (title, body) = match &event.info {
+        match &event.info {
 
             ApiEventType::GameStart => {
                 let home = teams.get_shortname(&game.home_team_code);
                 let away = teams.get_shortname(&game.away_team_code);
-                ("Nedsläpp".to_string(), format!("{home} : {away}"))
+                ApnAlert { title: "Nedsläpp".to_string(), body: format!("{home} : {away}"), subtitle: None }
             }
 
             ApiEventType::GameEnd(a) => {
@@ -53,7 +52,7 @@ impl ApnAlert {
                     (None, _) => "Matchen slutade".to_string(),
                 };
                 let body = format!("{} {} - {} {}", home, game.home_team_result, game.away_team_result, away);
-                (title, body)
+                ApnAlert { title, body, subtitle: None }
             },
 
             ApiEventType::Goal(a) => {
@@ -70,7 +69,7 @@ impl ApnAlert {
                 let score_board = format!("{} {} - {} {}", home_code, a.home_team_result, a.away_team_result, away_code);
                 let bottom = format!("{player} • {}", event.get_time_info());
                 let body = format!("{score_board}\n{bottom}");
-                (title, body)
+                ApnAlert { title, body, subtitle: None }
             },
 
             _ => {
@@ -78,13 +77,46 @@ impl ApnAlert {
                 let home_code = teams.get_display_code(&game.home_team_code);
                 let away_code = teams.get_display_code(&game.away_team_code);
                 let score_board = format!("{} {} - {} {}", home_code, game.home_team_result, game.away_team_result, away_code);
-                (title, score_board)
+                ApnAlert { title, body: score_board, subtitle: None }
             }
-        };
-        ApnAlert { title, body, subtitle: None }
+        }
     }
 }
 
+impl LiveActivityEvent {
+    fn from(event: &ApiGameEvent, teams: &TeamsMap, user_teams: &[String]) -> LiveActivityEvent {
+        match &event.info {
+            ApiEventType::GameStart => LiveActivityEvent { title: "Nedsläpp".to_string(), body: None, team_code: None },
+            ApiEventType::GameEnd(a) => {
+                let excited = a.winner.as_ref().map(|e| user_teams.contains(e)).unwrap_or(false);
+                let title = match (&a.winner, excited) {
+                    (Some(winner), true) => format!("{} vinner! 🥇", teams.get_display_code(winner)),
+                    (Some(winner), false) => format!("{} vann", teams.get_display_code(winner)),
+                    (None, _) => "Matchen slutade".to_string(),
+                };
+                LiveActivityEvent { title, body: None, team_code: None }
+            },
+            ApiEventType::Goal(a) => {
+                let excited = user_teams.contains(&a.team);
+                let team_name = teams.get_shortname(&a.team);
+                let title = match excited {
+                    true => format!("MÅÅÅL för {}! 🎉", team_name),
+                    false => format!("Mål för {}", team_name),
+                };
+                let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
+                let body = format!("{player} • {}", event.get_time_info());
+                LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
+            },
+            ApiEventType::Penalty(a) => {
+                let title = format!("Utvisning - {}", a.penalty.clone().unwrap_or_default());
+                let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
+                let body = format!("{} • {}", player, a.reason.clone().unwrap_or_default());
+                LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
+            }
+            _ => LiveActivityEvent { title: event.description.clone(), body: None, team_code: None }
+        }
+    }
+}
 
 impl User {
     fn should_send(&self, game: &ApiGame) -> bool {
@@ -136,7 +168,11 @@ impl NotificationService {
         }
     }
 
-    pub async fn process_live_activity(&mut self, game: &ApiGame, event: Option<&ApiGameEvent>) {
+    pub async fn process_live_activity(&mut self, game: &ApiGame) {
+        let events = EventService::read(&game.game_uuid.clone());
+        let event = events.iter()
+            .filter(|e| e.info.get_level() != ApiEventTypeLevel::Low)
+            .last();
         let before = Instant::now();
         self.apn_client.update_token();
         let mut futures = vec!();
@@ -161,7 +197,6 @@ impl NotificationService {
         if size > 0 {
             log::info!("[NOTIFICATION] Sent notifications in {:.0?}", before.elapsed());
         }
-        // TODO: Handle end live activity
     }
 
     fn get_apn_push(&self, user: &User, game: &ApiGame, event: Option<&ApiGameEvent>) -> Option<(String, ApnPush<Option<LiveActivityContentState>, ApiGame>)> {
@@ -179,11 +214,14 @@ impl NotificationService {
                 content_available: None,
                 sound: match alert.is_some() { true => Some("ping.aiff".to_string()), false => None, },
                 badge: None,
-                event: Some(match event.as_ref().map(|e| e.info.clone()) { Some(ApiEventType::GameEnd(_)) => "end".to_string(), _ => "update".to_string() }),
+                event: event.map(|e| match e.info.clone() { ApiEventType::GameEnd(_) => "end".to_string(), _ => "update".to_string() }),
                 relevance_score: Some(match alert.is_some() { true => 100, false => 75, }),
                 stale_date: Some(expiration),
                 timestamp: Some(now),
-                content_state: Some(LiveActivityContentState { game: game.clone(), event: event.cloned() }),
+                content_state: Some(LiveActivityContentState {
+                    report: LiveActivityReport { home_score: game.home_team_result, away_score: game.away_team_result, status: Some(game.status.clone()), gametime: game.gametime.clone() },
+                    event: event.map(|e| LiveActivityEvent::from(e, &self.teams, &user.teams)),
+                }),
             };
             let body = ApnBody {
                 aps,
@@ -198,6 +236,7 @@ impl NotificationService {
                 expiration: Some(expiration),
             };
             Some((live_activity_entry.apn_token.clone(), ApnPush { header, body, }))
+            
         } else if alert.is_some() && user.should_send(game) {
             let body = ApnBody {
                 aps: ApnAps {

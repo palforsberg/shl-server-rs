@@ -21,7 +21,7 @@ use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
 use crate::notification_service::{NotificationService};
 use crate::report_state_machine::{ReportStateMachine, ApiSseMsg};
-use crate::event_service::{EventService, ApiEventType, ApiEventTypeLevel};
+use crate::event_service::{EventService, ApiEventType};
 use crate::game_report_service::{GameReportService, ApiGameReport, GameStatus};
 use crate::player_service::PlayerService;
 use crate::sse_client::{SseClient};
@@ -233,12 +233,7 @@ async fn handle_sse_events(
 
                     let updated_api_game = api_season_service.write().await.update_from_report(&report);
                     if let Some(g) = updated_api_game {
-                        let last_event = EventService::read(&game_uuid)
-                            .iter()
-                            .filter(|e| e.info.get_level() != ApiEventTypeLevel::Low)
-                            .last()
-                            .cloned();
-                        notification_service.process_live_activity(&g, last_event.as_ref()).await;
+                        notification_service.process_live_activity(&g).await;
 
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                         PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
@@ -260,7 +255,7 @@ async fn handle_sse_events(
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                         PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                     }
-                    if matches!(event.info, ApiEventType::GameEnd(_)) {
+                    if new_event && matches!(event.info, ApiEventType::GameEnd(_)) {
                         let season_service = api_season_service.clone();
                         tokio::spawn(async move {
                             log::info!("[SSE] Game Ended, Updating in 5min");

@@ -1,7 +1,7 @@
 
 use std::{fmt::Display};
 
-use crate::{api_season_service::ApiGame, event_service::ApiGameEvent, CONFIG};
+use crate::{CONFIG, game_report_service::GameStatus};
 use axum::{http::{HeaderMap, HeaderValue}};
 use chrono::{DateTime, Utc, Duration};
 use jsonwebtoken::{Header, EncodingKey};
@@ -148,8 +148,25 @@ pub struct ApnAlert {
 
 #[derive(Serialize)]
 pub struct LiveActivityContentState {
-    pub game: ApiGame,
-    pub event: Option<ApiGameEvent>,
+    pub report: LiveActivityReport,
+    pub event: Option<LiveActivityEvent>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveActivityReport {
+    pub home_score: i16,
+    pub away_score: i16,
+    pub status: Option<GameStatus>,
+    pub gametime: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveActivityEvent {
+    pub title: String,
+    pub body: Option<String>,
+    pub team_code: Option<String>,
 }
 
 #[derive(Serialize, Default)]
