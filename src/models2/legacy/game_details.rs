@@ -91,8 +91,8 @@ impl From<(ApiGameEvent, ApiGameDetails)> for LegacyGameEvent {
             info: LegacyGameEventInfo { 
                 homeTeamId: details.game.home_team_code, 
                 awayTeamId: details.game.away_team_code,
-                homeResult: details.game.home_team_result,
-                awayResult: details.game.away_team_result,
+                homeResult: match event.info.clone() { ApiEventType::Goal(a) => a.home_team_result, _ => details.game.home_team_result },
+                awayResult: match event.info.clone() { ApiEventType::Goal(a) => a.away_team_result, _ => details.game.away_team_result },
                 team: match event.info.clone() {
                     ApiEventType::Goal(a) => Some(a.team),
                     ApiEventType::Penalty(a) => Some(a.team),

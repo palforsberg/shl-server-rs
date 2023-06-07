@@ -8,7 +8,7 @@ use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tracing::log;
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}};
+use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -134,9 +134,12 @@ impl Api {
         db.read_raw(&player_id)
     } 
 
-
-    async fn get_playoffs() -> impl IntoResponse {
-        (StatusCode::NOT_FOUND, "404".to_string())
+    async fn get_playoffs(Path(season): Path<String>) -> impl IntoResponse {
+        if let Ok(e) = season.parse() {
+            (StatusCode::OK, PlayoffService::get_db().read_raw(&e))
+        } else {
+            (StatusCode::NOT_FOUND, "404".to_string())
+        }          
     }
     
     async fn start_live_activity(Json(req): Json<StartLiveActivity>) -> impl IntoResponse {

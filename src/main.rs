@@ -57,6 +57,7 @@ mod apn_client;
 mod in_mem_games;
 mod migrate;
 mod api_player_stats_service;
+mod playoff_service;
 
 #[cfg(test)]
 mod mock_test;

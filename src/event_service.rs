@@ -14,11 +14,18 @@ impl FromStr for Player {
     type Err = ParseStringError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // 1 Johan Johansson Olsson => Player
+        if s.is_empty() {
+            return Err(ParseStringError)
+        }
         let parts: Vec<&str> = s.split(' ').collect();
         let jersey = parts.first().cloned().unwrap_or_default().to_string(); 
         let first_name = parts.get(1).cloned().unwrap_or_default().to_string();
         let family_name = s.replace(format!("{jersey} {first_name} ").as_str(), "");
-        Ok(Player { jersey, first_name, family_name })
+        if jersey.is_empty() && first_name.is_empty() && family_name.is_empty() {
+            Err(ParseStringError)
+        } else {
+            Ok(Player { jersey, first_name, family_name })
+        }
     }
 }
 
@@ -69,9 +76,15 @@ impl PenaltyInfo {
             .unwrap_or_else(|| (None, None));
         let (penalty, reason) = penalty_info.unwrap_or_default().split_once(',')
             .map(|e| (Some(e.0.to_string()), Some(e.1.to_string())))
-            .unwrap_or_else(|| (None, None));
+            .unwrap_or_else(|| (None, Some(description.to_string())));
+
         let player = player_info.unwrap_or_default().parse::<Player>().ok();
-        PenaltyInfo { team: p.team.clone(), player, reason, penalty }
+        PenaltyInfo { 
+            team: p.team.clone(), 
+            player, 
+            reason: reason.map(|e| e.trim().to_string()), 
+            penalty 
+        }
     }
 }
 
@@ -243,4 +256,46 @@ impl EventService {
             .collect()
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models2::external::event::Penalty;
+
+    use super::{Player, PenaltyInfo};
+
+    #[test]
+    fn parse_player() {
+        let player_res = "1 Mats Olle Matsson".parse::<Player>();
+        assert!(player_res.is_ok());
+        let player = player_res.unwrap();
+        assert_eq!(player.first_name, "Mats");
+        assert_eq!(player.family_name, "Olle Matsson");
+        assert_eq!(player.jersey, "1");
+    }
+
+    #[test]
+    fn parse_player_err() {
+        let player_res = "".parse::<Player>();
+        assert!(player_res.is_err());
+    }
+
+    #[test]
+    fn parse_penalty_info() {
+        let info = PenaltyInfo::new("1 Olle Olsson utvisas 5min, roughing", &Penalty { team: "LHF".to_string() });
+        assert_eq!(info.penalty.unwrap(), "5min");
+        assert_eq!(info.reason.unwrap(), "roughing");
+        assert_eq!(info.player.unwrap().first_name, "Olle");
+        assert_eq!(info.team, "LHF");
+    }
+
+
+    #[test]
+    fn parse_penalty_info2() {
+        let info = PenaltyInfo::new("Too many players on ice", &Penalty { team: "LHF".to_string() });
+        assert_eq!(info.penalty, None);
+        assert_eq!(info.reason.unwrap(), "Too many players on ice");
+        assert_eq!(info.player, None);
+        assert_eq!(info.team, "LHF");
+    }
 }
