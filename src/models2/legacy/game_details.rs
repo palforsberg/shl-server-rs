@@ -29,8 +29,16 @@ pub struct LegacyGameDetails {
     pub gameState: String,
     pub events: Vec<LegacyGameEvent>,
     pub status: GameStatus,
+    pub report: Option<LegacyGameReport>,
 }
 
+#[derive(Serialize, Clone, Default)]
+pub struct LegacyGameReport {
+    pub gametime: String,
+    pub timePeriod: u8,
+    pub period: u8,
+    pub gameState: String,
+}
 
 #[derive(Serialize, Clone)]
 pub struct LegacyGameEvent {
@@ -150,9 +158,10 @@ impl From<ApiGameDetails> for LegacyGameDetails {
         };
         LegacyGameDetails { 
             recaps: LegacyRecaps { gameRecap }, 
-            gameState: "Finished".to_string(), 
+            gameState: "".to_string(),
             events: value.events.clone().into_iter().map(|e| (e, value.clone()).into()).collect(),
             status: value.game.status,
+            report: value.game.gametime.map(|e| LegacyGameReport { gametime: e, ..Default::default() }),
         }
     }
 }

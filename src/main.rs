@@ -21,7 +21,7 @@ use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
 use crate::notification_service::{NotificationService};
 use crate::report_state_machine::{ReportStateMachine, ApiSseMsg};
-use crate::event_service::{EventService, ApiEventType};
+use crate::event_service::{EventService, ApiEventType, ApiEventTypeLevel};
 use crate::game_report_service::{GameReportService, ApiGameReport, GameStatus};
 use crate::player_service::PlayerService;
 use crate::sse_client::{SseClient};
@@ -55,7 +55,6 @@ mod user_service;
 mod notification_service;
 mod apn_client;
 mod in_mem_games;
-mod migrate;
 mod api_player_stats_service;
 mod playoff_service;
 
@@ -86,8 +85,6 @@ async fn main() {
         .event_format(format)
         .with_max_level(tracing::Level::INFO)
         .init();
-
-    // Migrate::migrate_users();
 
     let api_season_service = ApiSeasonService::new();
     let vote_service = VoteService::new();
@@ -243,7 +240,7 @@ async fn handle_sse_events(
                 ApiSseMsg::Event(event) => {
                     log::info!("[SSE] EVENT {event}");
                     let new_event = EventService::store(&game_uuid, &event);
-                    if new_event {
+                    if new_event && event.info.get_level() != ApiEventTypeLevel::Low {
                         if let Some(game) = api_season_service.read().await.read_current_season_game(&game_uuid) {
                             notification_service.process(&game, Some(&event)).await;
                         }
@@ -265,7 +262,7 @@ async fn handle_sse_events(
                                 StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                                 PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                                 UserService::remove_references_to(&game_uuid);
-                                log::info!("[SSE] Updated");
+                                log::info!("[SSE] Updated after Game Ended");
                             }
                         });
                     }

@@ -31,16 +31,17 @@ impl Api {
             nr_ws: Arc::new(RwLock::new(0)),
         };
         let app = Router::new()
-            .route("/games/:season", get(Api::get_games))
             .route("/game/:game_uuid/:game_id", get(Api::get_legacy_game_details))
+            .route("/standings/:season", get(Api::get_legacy_standings))
+            .route("/playoffs/:season", get(Api::get_legacy_playoffs))
+            .route("/players/:team", get(Api::get_legacy_players))
+
+            .route("/games/:season", get(Api::get_games))
             .route("/game/:game_uuid", get(Api::get_game_details))
             .route("/teams", get(Api::get_teams))
             .route("/rankings/:season", get(Api::get_leagues))
-            .route("/standings/:season", get(Api::get_legacy_standings))
-            .route("/playoffs/:season", get(Api::get_playoffs))
             .route("/player/:player_id", get(Api::get_player))
             .route("/players/:team/:season", get(Api::get_players))
-            .route("/players/:team", get(Api::get_legacy_players))
     
             .route("/live-activity/start", post(Api::start_live_activity))
             .route("/live-activity/end", post(Api::end_live_activity))
@@ -62,8 +63,7 @@ impl Api {
             .serve(app.into_make_service())
             .await;
     }
-    
-    
+
     async fn root() -> &'static str {
         "Puck puck puck"
     }
@@ -134,12 +134,13 @@ impl Api {
         db.read_raw(&player_id)
     } 
 
-    async fn get_playoffs(Path(season): Path<String>) -> impl IntoResponse {
+    async fn get_legacy_playoffs(Path(season): Path<String>) -> impl IntoResponse {
         if let Ok(e) = season.parse() {
-            (StatusCode::OK, PlayoffService::get_db().read_raw(&e))
+            let playoffs = PlayoffService::get_db().read(&e);
+            (StatusCode::OK, Json(playoffs.map(|e| e.SHL)).into_response())
         } else {
-            (StatusCode::NOT_FOUND, "404".to_string())
-        }          
+            (StatusCode::NOT_FOUND, "404".to_string().into_response())
+        }
     }
     
     async fn start_live_activity(Json(req): Json<StartLiveActivity>) -> impl IntoResponse {

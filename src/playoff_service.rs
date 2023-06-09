@@ -10,7 +10,12 @@ pub struct PlayoffEntry {
     pub score1: u8,
     pub score2: u8,
     pub eliminiated: Option<String>,
+    #[serde(default = "get_nr_games")]
     pub nr_games: u8,
+}
+
+fn get_nr_games() -> u8 {
+    4
 }
 
 #[derive(Serialize, Deserialize, Clone)]

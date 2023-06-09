@@ -47,8 +47,8 @@ impl ApnAlert {
                 let excited = a.winner.as_ref().map(|e| user_teams.contains(e)).unwrap_or(false);
                 let (home, away) = (teams.get_shortname(&game.home_team_code), teams.get_shortname(&game.away_team_code));
                 let title = match (&a.winner, excited) {
-                    (Some(winner), true) => format!("{winner} vinner! 🥇"),
-                    (Some(winner), false) => format!("{winner} vann"),
+                    (Some(winner), true) => format!("{} vinner! 🥇", teams.get_shortname(winner)),
+                    (Some(winner), false) => format!("{} vann", teams.get_shortname(winner)),
                     (None, _) => "Matchen slutade".to_string(),
                 };
                 let body = format!("{} {} - {} {}", home, game.home_team_result, game.away_team_result, away);
@@ -90,8 +90,8 @@ impl LiveActivityEvent {
             ApiEventType::GameEnd(a) => {
                 let excited = a.winner.as_ref().map(|e| user_teams.contains(e)).unwrap_or(false);
                 let title = match (&a.winner, excited) {
-                    (Some(winner), true) => format!("{} vinner! 🥇", teams.get_display_code(winner)),
-                    (Some(winner), false) => format!("{} vann", teams.get_display_code(winner)),
+                    (Some(winner), true) => format!("{} vinner! 🥇", teams.get_shortname(winner)),
+                    (Some(winner), false) => format!("{} vann", teams.get_shortname(winner)),
                     (None, _) => "Matchen slutade".to_string(),
                 };
                 LiveActivityEvent { title, body: None, team_code: None }
@@ -148,7 +148,7 @@ impl NotificationService {
         self.apn_client.update_token();
         let mut futures = vec!();
         for user in UserService::stream_all() {
-            if let Some((device_token, push)) = self.get_apn_push(&user, game, event) {
+            if let Some((device_token, push)) = self.get_apn_push(&user, game, event, true) {
                 let push_type = push.header.push_type.clone();
                 let future = self.apn_client.push_notification(push, device_token).map(move |e| {
                     if let Err(ApnError::BadDeviceToken) = e {
@@ -177,7 +177,7 @@ impl NotificationService {
         self.apn_client.update_token();
         let mut futures = vec!();
         for user in UserService::stream_all() {
-            if let Some((device_token, push)) = self.get_apn_push(&user, game, event) {
+            if let Some((device_token, push)) = self.get_apn_push(&user, game, event, false) {
                 let push_type = push.header.push_type.clone();
                 if push_type == ApnPushType::LiveActivity {
                     let future = self.apn_client.push_notification(push, device_token).map(move |e| {
@@ -199,12 +199,13 @@ impl NotificationService {
         }
     }
 
-    fn get_apn_push(&self, user: &User, game: &ApiGame, event: Option<&ApiGameEvent>) -> Option<(String, ApnPush<Option<LiveActivityContentState>, ApiGame>)> {
+    fn get_apn_push(&self, user: &User, game: &ApiGame, event: Option<&ApiGameEvent>, should_alert: bool) -> Option<(String, ApnPush<Option<LiveActivityContentState>, ApiGame>)> {
         let now = Utc::now().timestamp();
         let expiration = (Utc::now() + Duration::hours(1)).timestamp();
-        let alert = match event.as_ref().map(|e| e.info.get_level() == ApiEventTypeLevel::High).unwrap_or(false) {
-            true => Some(ApnAlert::from(game, event.unwrap(), &self.teams, &user.teams)),
-            false => None,
+        let event_is_level_high = event.as_ref().map(|e| e.info.get_level() == ApiEventTypeLevel::High).unwrap_or(false);
+        let alert = match (event_is_level_high, should_alert) {
+            (true, true) => Some(ApnAlert::from(game, event.unwrap(), &self.teams, &user.teams)),
+            (_, _) => None,
         };
         let live_activity_entry = user.live_activities.iter().find(|e| e.game_uuid == game.game_uuid);
         if let Some(live_activity_entry) = live_activity_entry {
