@@ -7,14 +7,20 @@ use crate::{db::Db, models::{League, Season, GameType}, api_season_service::ApiG
 
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
-pub struct StandingKey  (pub League, pub Season);
+pub struct StandingKey (pub Season);
 impl Display for StandingKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}/{}", self.0, self.1)
+        write!(f, "{:?}", self.0)
     }
 }
 
 type TeamCode = String;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Standings {
+    pub SHL: Vec<Standing>,
+    pub HA: Vec<Standing>,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Standing {
@@ -29,9 +35,11 @@ pub struct Standing {
 
 impl Standing {
     fn add_game(&mut self, g: &ApiGame) {
-        self.gp += 1;
-        self.points += g.get_points_for(&self.team_code);
-        self.diff += g.get_goal_diff_for(&self.team_code);
+        if g.played {
+            self.gp += 1;
+            self.points += g.get_points_for(&self.team_code);
+            self.diff += g.get_goal_diff_for(&self.team_code);
+        }
     }
 }
 
@@ -71,22 +79,20 @@ impl StandingService {
         let db = StandingService::get_db();
         let before = Instant::now();
         
-        let league_map = games.iter()
+        let shl_games = games.iter()
             .filter(|e| e.game_type == GameType::Season)
-            .filter(|e| e.played)
-            .fold(HashMap::<League, Vec<&ApiGame>>::new(), |mut map, game| {
-                map
-                    .entry(game.league.clone())
-                    .or_insert_with(Vec::new)
-                    .push(game);
-                map
-            });
+            .filter(|e| e.league == League::SHL)
+            .collect();
+    
+        let ha_games = games.iter()
+            .filter(|e| e.game_type == GameType::Season)
+            .filter(|e| e.league == League::HA)
+            .collect();
         
-        for (key, val) in league_map {
-            let standing_key = StandingKey(key, season.clone());
-            let standings = StandingService::get_standings(val);
-            _ = db.write(&standing_key, &standings);
-        }
+        let standing_key = StandingKey(season.clone());
+        let shl_standings = StandingService::get_standings(shl_games);
+        let ha_standings = StandingService::get_standings(ha_games);
+        _ = db.write(&standing_key, &Standings { SHL: shl_standings, HA: ha_standings });
 
         log::info!("[STANDING] Updated in {:.0?}", before.elapsed());
     }
@@ -125,11 +131,96 @@ impl StandingService {
     }
 
 
-    pub fn read_raw(league: League, season: Season) -> String {
-        StandingService::get_db().read_raw(&StandingKey(league, season))
+    pub fn read_raw(season: Season) -> String {
+        StandingService::get_db().read_raw(&StandingKey(season))
     }
 
-    fn get_db() -> Db<StandingKey, Vec<Standing>> {
+    pub fn read(season: Season) -> Option<Standings> {
+        StandingService::get_db().read(&StandingKey(season))
+    }
+
+    fn get_db() -> Db<StandingKey, Standings> {
         Db::new("v2_standings")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use tempdir::TempDir;
+
+    use crate::api_season_service::ApiGame;
+
+    use super::{StandingService};
+
+
+    #[test]
+    fn sunny_day() {
+        std::env::set_var("DB_PATH", TempDir::new("test").expect("dir to be created").path().to_str().unwrap());
+        
+        let games = vec![
+            get_played_game("game_uuid123", "LHF", "FHC"),
+            get_coming_game("game_uuid124", "TIK", "MODO"),
+        ];
+
+        StandingService::update(&crate::models::Season::Season2023, &games);
+
+        let standings = StandingService::read(crate::models::Season::Season2023).unwrap();
+        assert_eq!(standings.SHL.len(), 4);
+        assert_eq!(standings.HA.len(), 0);
+
+        let lhf = standings.SHL.iter().find(|e| e.team_code == "LHF").unwrap();
+        assert_eq!(lhf.gp, 1);
+        assert_eq!(lhf.rank, 1);
+        assert_eq!(lhf.points, 3);
+
+        let fhc = standings.SHL.iter().find(|e| e.team_code == "FHC").unwrap();
+        assert_eq!(fhc.gp, 1);
+        assert_eq!(fhc.points, 0);
+
+        let tik = standings.SHL.iter().find(|e| e.team_code == "TIK").unwrap();
+        assert_eq!(tik.gp, 0);
+        assert_eq!(tik.points, 0);
+
+        let modo = standings.SHL.iter().find(|e| e.team_code == "MODO").unwrap();
+        assert_eq!(modo.gp, 0);
+        assert_eq!(modo.points, 0);
+    }
+
+    pub fn get_played_game(game_uuid: &str, team1: &str, team2: &str) -> ApiGame {
+        ApiGame {
+            game_uuid: game_uuid.to_string(),
+            home_team_code: team1.to_string(),
+            away_team_code: team2.to_string(),
+            home_team_result: 3,
+            away_team_result: 0,
+            start_date_time: Utc::now(),
+            status: crate::game_report_service::GameStatus::Finished,
+            shootout: false,
+            overtime: false,
+            played: true,
+            game_type: crate::models::GameType::Season,
+            league: crate::models::League::SHL,
+            season: crate::models::Season::Season2022,
+            gametime: None,
+        }
+    }
+    pub fn get_coming_game(game_uuid: &str, team1: &str, team2: &str) -> ApiGame {
+        ApiGame {
+            game_uuid: game_uuid.to_string(),
+            home_team_code: team1.to_string(),
+            away_team_code: team2.to_string(),
+            home_team_result: 3,
+            away_team_result: 0,
+            start_date_time: Utc::now(),
+            status: crate::game_report_service::GameStatus::Coming,
+            shootout: false,
+            overtime: false,
+            played: false,
+            game_type: crate::models::GameType::Season,
+            league: crate::models::League::SHL,
+            season: crate::models::Season::Season2022,
+            gametime: None,
+        }
     }
 }

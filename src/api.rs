@@ -110,9 +110,7 @@ impl Api {
     
     async fn get_leagues(season: Option<Path<String>>) -> impl IntoResponse {
         if let Ok(season) = season.map(|e| e.parse()).unwrap_or_else(|| Ok(Season::get_current())) {
-            let shl = StandingService::read_raw(League::SHL, season.clone());
-            let ha = StandingService::read_raw(League::HA, season);
-            (StatusCode::OK, format!("{{\"SHL\":{shl}, \"HA\":{ha}}}"))
+            (StatusCode::OK, StandingService::read_raw(season))
         } else {
             (StatusCode::NOT_FOUND, "404".to_string())
         }
@@ -127,9 +125,10 @@ impl Api {
 
     async fn get_legacy_standings(season: Option<Path<String>>) -> impl IntoResponse {
         if let Ok(season) = season.map(|e| e.parse()).unwrap_or_else(|| Ok(Season::get_current())) {
-            (StatusCode::OK, StandingService::read_raw(League::SHL, season))
+            let standings = StandingService::read(season);
+            (StatusCode::OK, Json(standings.map(|e| e.SHL).unwrap_or_default()).into_response())
         } else {
-            (StatusCode::NOT_FOUND, "404".to_string())
+            (StatusCode::NOT_FOUND, "404".to_string().into_response())
         }
     }
     
