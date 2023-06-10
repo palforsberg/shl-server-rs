@@ -45,13 +45,14 @@ impl ApnAlert {
 
             ApiEventType::GameEnd(a) => {
                 let excited = a.winner.as_ref().map(|e| user_teams.contains(e)).unwrap_or(false);
-                let (home, away) = (teams.get_shortname(&game.home_team_code), teams.get_shortname(&game.away_team_code));
                 let title = match (&a.winner, excited) {
                     (Some(winner), true) => format!("{} vinner! 🥇", teams.get_shortname(winner)),
                     (Some(winner), false) => format!("{} vann", teams.get_shortname(winner)),
                     (None, _) => "Matchen slutade".to_string(),
                 };
-                let body = format!("{} {} - {} {}", home, game.home_team_result, game.away_team_result, away);
+                let home_code = teams.get_display_code(&game.home_team_code);
+                let away_code = teams.get_display_code(&game.away_team_code);
+                let body = format!("{} {} - {} {}", home_code, game.home_team_result, game.away_team_result, away_code);
                 ApnAlert { title, body, subtitle: None }
             },
 

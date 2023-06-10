@@ -5,7 +5,6 @@ use std::time::Duration;
 use api::{Api};
 use api_player_stats_service::ApiPlayerStatsService;
 use api_season_service::{SafeApiSeasonService};
-use api_teams_service::ApiTeamsService;
 use api_ws::WsMsg;
 use bounded_vec_deque::BoundedVecDeque;
 use config_handler::Config;
@@ -91,9 +90,6 @@ async fn main() {
     for season in Season::get_all() {
         let (responses, _) = SeasonService { }.update(&season).await;
         let api_games = api_season_service.write().await.update(&season, &responses);
-        for r in responses {
-            ApiTeamsService::add(&r.1.teamList, r.0.1);
-        }
         
         StandingService::update(&season, &api_games);
     }
@@ -130,9 +126,6 @@ async fn start_loop(
         let (responses, updated) = season_service.update(&season).await;
         if updated {
             let api_games = api_season_service.write().await.update(&season, &responses);
-            for r in &responses {
-                ApiTeamsService::add(&r.1.teamList, r.0.1.clone());
-            }
             
             StandingService::update(&season, &api_games);
             ApiPlayerStatsService::update(&api_games);

@@ -319,14 +319,13 @@ mod tests {
     pub fn get_played_game(game_uuid: &str, team: &str) -> ApiGame {
         ApiGame {
             game_uuid: game_uuid.to_string(),
-            game_id: 123,
             home_team_code: team.to_string(),
             away_team_code: "FHC".to_string(),
             home_team_result: 3,
             away_team_result: 0,
             start_date_time: Utc::now(),
             status: crate::game_report_service::GameStatus::Finished,
-            penalty_shots: false,
+            shootout: false,
             overtime: false,
             played: true,
             game_type: crate::models::GameType::Season,

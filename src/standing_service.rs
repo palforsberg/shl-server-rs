@@ -46,7 +46,7 @@ impl ApiGame {
     fn get_points_for(&self, team_code: &str) -> u16 {
         debug_assert!(self.home_team_code == team_code || self.away_team_code == team_code);
 
-        match (self.did_team_win(team_code), self.overtime || self.penalty_shots) {
+        match (self.did_team_win(team_code), self.overtime || self.shootout) {
             (true, false) => 3,
             (true, true) => 2,
             (false, true) => 1,

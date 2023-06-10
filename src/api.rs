@@ -8,7 +8,7 @@ use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tracing::log;
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::ApiTeamsService, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService};
+use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -31,24 +31,30 @@ impl Api {
             nr_ws: Arc::new(RwLock::new(0)),
         };
         let app = Router::new()
+            .route("/games/:season", get(Api::get_legacy_games))
             .route("/game/:game_uuid/:game_id", get(Api::get_legacy_game_details))
             .route("/standings/:season", get(Api::get_legacy_standings))
             .route("/playoffs/:season", get(Api::get_legacy_playoffs))
             .route("/players/:team", get(Api::get_legacy_players))
-
-            .route("/games/:season", get(Api::get_games))
-            .route("/game/:game_uuid", get(Api::get_game_details))
-            .route("/teams", get(Api::get_teams))
-            .route("/rankings/:season", get(Api::get_leagues))
-            .route("/player/:player_id", get(Api::get_player))
-            .route("/players/:team/:season", get(Api::get_players))
-    
+            .route("/teams", get(Api::get_legacy_teams))
             .route("/live-activity/start", post(Api::start_live_activity))
             .route("/live-activity/end", post(Api::end_live_activity))
+            .route("/user", post(Api::add_user))
+
+            .route("/v2/games/:season", get(Api::get_games))
+            .route("/v2/game/:game_uuid", get(Api::get_game_details))
+            .route("/v2/teams", get(Api::get_teams))
+            .route("/v2/standings/:season", get(Api::get_leagues))
+            .route("/v2/playoffs/:season", get(Api::get_playoffs))
+            .route("/v2/player/:player_id", get(Api::get_player))
+            .route("/v2/players/:season/:team", get(Api::get_players))
+    
+            .route("/v2/live-activity/start", post(Api::start_live_activity))
+            .route("/v2/live-activity/end", post(Api::end_live_activity))
+            .route("/v2/user", post(Api::add_user))
 
             .route("/vote", post(Api::vote))
 
-            .route("/user", post(Api::add_user))
 
             .route("/ws", get(Api::ws_handler))
     
@@ -68,6 +74,19 @@ impl Api {
         "Puck puck puck"
     }
     
+    async fn get_legacy_games(Path(season): Path<String>) -> impl IntoResponse {
+        if let Ok(season) = season.parse() {
+            let games: Vec<LegacyGame> = ApiSeasonService::read(&season)
+                .into_iter()
+                .filter(|e| e.league == League::SHL)
+                .map(|e| e.into())
+                .collect();
+            (StatusCode::OK, Json(games).into_response())
+        } else {
+            (StatusCode::NOT_FOUND, "404".to_string().into_response())
+        }
+    }
+
     async fn get_games(Path(season): Path<String>) -> impl IntoResponse {
         if let Ok(season) = season.parse() {
             (StatusCode::OK, ApiSeasonService::read_raw(&season))
@@ -83,6 +102,10 @@ impl Api {
     
     async fn get_teams() -> impl IntoResponse {
         ApiTeamsService::read_raw()
+    }
+
+    async fn get_legacy_teams() -> impl IntoResponse {
+        Json(ApiTeamsService::read().into_iter().filter(|e| e.league == Some(League::SHL)).collect::<Vec<ApiTeam>>())
     }
     
     async fn get_leagues(season: Option<Path<String>>) -> impl IntoResponse {
@@ -133,6 +156,14 @@ impl Api {
         let db = ApiPlayerStatsService::get_player_career_db();
         db.read_raw(&player_id)
     } 
+
+    async fn get_playoffs(Path(season): Path<String>) -> impl IntoResponse {
+        if let Ok(e) = season.parse() {
+            (StatusCode::OK, PlayoffService::get_db().read_raw(&e).into_response())
+        } else {
+            (StatusCode::NOT_FOUND, "404".to_string().into_response())
+        }
+    }
 
     async fn get_legacy_playoffs(Path(season): Path<String>) -> impl IntoResponse {
         if let Ok(e) = season.parse() {
