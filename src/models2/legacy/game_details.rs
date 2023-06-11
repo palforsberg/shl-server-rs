@@ -129,7 +129,7 @@ impl From<(ApiGameEvent, ApiGameDetails)> for LegacyGameEvent {
                     _ => None,
                 },
                 reason: match event.info {
-                    ApiEventType::Penalty(a) => a.reason,
+                    ApiEventType::Penalty(a) => Some(a.reason),
                     _ => None,
                 },
             }, 

@@ -66,7 +66,7 @@ impl GoalInfo {
 pub struct PenaltyInfo {
     pub team: String,
     pub player: Option<Player>,
-    pub reason: Option<String>,
+    pub reason: String,
     pub penalty: Option<String>,
 }
 impl PenaltyInfo {
@@ -75,14 +75,14 @@ impl PenaltyInfo {
             .map(|e| (Some(e.0), Some(e.1)))
             .unwrap_or_else(|| (None, None));
         let (penalty, reason) = penalty_info.unwrap_or_default().split_once(',')
-            .map(|e| (Some(e.0.to_string()), Some(e.1.to_string())))
-            .unwrap_or_else(|| (None, Some(description.to_string())));
+            .map(|e| (Some(e.0.to_string()), e.1.to_string()))
+            .unwrap_or_else(|| (None, description.to_string()));
 
         let player = player_info.unwrap_or_default().parse::<Player>().ok();
         PenaltyInfo { 
             team: p.team.clone(), 
             player, 
-            reason: reason.map(|e| e.trim().to_string()), 
+            reason: reason.trim().to_string(), 
             penalty 
         }
     }
@@ -284,7 +284,7 @@ mod tests {
     fn parse_penalty_info() {
         let info = PenaltyInfo::new("1 Olle Olsson utvisas 5min, roughing", &Penalty { team: "LHF".to_string() });
         assert_eq!(info.penalty.unwrap(), "5min");
-        assert_eq!(info.reason.unwrap(), "roughing");
+        assert_eq!(info.reason, "roughing");
         assert_eq!(info.player.unwrap().first_name, "Olle");
         assert_eq!(info.team, "LHF");
     }
@@ -294,7 +294,7 @@ mod tests {
     fn parse_penalty_info2() {
         let info = PenaltyInfo::new("Too many players on ice", &Penalty { team: "LHF".to_string() });
         assert_eq!(info.penalty, None);
-        assert_eq!(info.reason.unwrap(), "Too many players on ice");
+        assert_eq!(info.reason, "Too many players on ice");
         assert_eq!(info.player, None);
         assert_eq!(info.team, "LHF");
     }

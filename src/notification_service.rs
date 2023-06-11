@@ -111,7 +111,7 @@ impl LiveActivityEvent {
             ApiEventType::Penalty(a) => {
                 let title = format!("Utvisning - {}", a.penalty.clone().unwrap_or_default());
                 let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
-                let body = format!("{} • {}", player, a.reason.clone().unwrap_or_default());
+                let body = format!("{} • {}", player, a.reason.clone());
                 LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
             }
             _ => LiveActivityEvent { title: event.description.clone(), body: None, team_code: None }

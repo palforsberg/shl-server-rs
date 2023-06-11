@@ -48,9 +48,10 @@ impl ReportStateMachine {
         } else if last_status != GameStatus::Finished && report.status == GameStatus::Finished {
             Some(ApiGameEvent { 
                 game_uuid: report.game_uuid.clone(),
-                event_id: "GameEnded".to_string(), revision: 1,
+                event_id: "GameEnded".to_string(), 
+                revision: 1,
                 status: GameStatus::Finished,
-                gametime: "20:00".to_string(),
+                gametime: report.gametime.clone(),
                 description: "Matchen slutade".to_string(),
                 info: ApiEventType::GameEnd(GameEndInfo { winner: report.get_winner() }),
             })
