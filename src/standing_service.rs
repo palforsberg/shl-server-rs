@@ -117,7 +117,9 @@ impl StandingService {
         let mut all_teams: Vec<Standing> = team_map.values().cloned().collect();
 
         all_teams.sort_by(|a, b| {
-            if a.points == b.points {
+            if a.gp == 0 || b.gp == 0 {
+                b.gp.partial_cmp(&a.gp).unwrap()
+            } else if a.points == b.points {
                 b.diff.partial_cmp(&a.diff).unwrap()
             } else {
                 b.points.partial_cmp(&a.points).unwrap() 
@@ -125,7 +127,10 @@ impl StandingService {
         });
 
         all_teams.into_iter().enumerate().map(|mut e| {
-            e.1.rank = u8::try_from(e.0).unwrap() + 1;
+            e.1.rank = match e.1.gp {
+                0 => 0,
+                _ => u8::try_from(e.0).unwrap() + 1,
+            };
             e.1
         }).collect()
     }
@@ -176,14 +181,17 @@ mod tests {
 
         let fhc = standings.SHL.iter().find(|e| e.team_code == "FHC").unwrap();
         assert_eq!(fhc.gp, 1);
+        assert_eq!(fhc.rank, 2);
         assert_eq!(fhc.points, 0);
 
         let tik = standings.SHL.iter().find(|e| e.team_code == "TIK").unwrap();
         assert_eq!(tik.gp, 0);
+        assert_eq!(tik.rank, 0);
         assert_eq!(tik.points, 0);
 
         let modo = standings.SHL.iter().find(|e| e.team_code == "MODO").unwrap();
         assert_eq!(modo.gp, 0);
+        assert_eq!(modo.rank, 0);
         assert_eq!(modo.points, 0);
     }
 

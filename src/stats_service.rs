@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{models::League, rest_client::{self}, models2::external::game_stats::StatsRsp, db::Db};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct GTeamStats {
+pub struct ApiGameTeamStats {
     pub g: i32,
     pub sog: i32,
     pub pim: i32,
@@ -14,8 +14,8 @@ pub struct GTeamStats {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiGameStats {
-    pub home: GTeamStats,
-    pub away: GTeamStats,
+    pub home: ApiGameTeamStats,
+    pub away: ApiGameTeamStats,
 }
 
 
@@ -30,14 +30,14 @@ impl From<StatsRsp> for ApiGameStats {
         let fow = &stats.as_ref().and_then(|e| e.iter().find(|e| e.caption == "FOWon"));
         let pim = &stats.as_ref().and_then(|e| e.iter().find(|e| e.caption == "PIM"));
 
-        let home = GTeamStats { 
+        let home = ApiGameTeamStats { 
             g: goals.map(|e| e.homeTeamValue).unwrap_or_default(), 
             sog: sog.map(|e| e.homeTeamValue).unwrap_or_default(),
             pim: pim.map(|e| e.homeTeamValue).unwrap_or_default(),
             fow: fow.map(|e| e.homeTeamValue).unwrap_or_default(),
         };
 
-        let away = GTeamStats { 
+        let away = ApiGameTeamStats { 
             g: goals.map(|e| e.awayTeamValue).unwrap_or_default(), 
             sog: sog.map(|e| e.awayTeamValue).unwrap_or_default(),
             pim: pim.map(|e| e.awayTeamValue).unwrap_or_default(),

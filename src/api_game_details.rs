@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{log};
 
-use crate::{event_service::{EventService, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, ApiGameStats}, player_service::{Players, PlayerService}, game_report_service::GameStatus};
+use crate::{event_service::{EventService, ApiGameEvent}, api_season_service::{ApiGame, ApiSeasonService}, stats_service::{StatsService, ApiGameStats}, player_service::{PlayerService, ApiAthlete}, game_report_service::GameStatus};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ApiGameDetails {
     pub events: Vec<ApiGameEvent>,
     pub stats: Option<ApiGameStats>,
     pub game: ApiGame,
-    pub players: Players,
+    pub players: Vec<ApiAthlete>,
 }
 
 #[derive(Clone)]
@@ -27,7 +27,7 @@ impl ApiGameDetailsService {
         let before = Instant::now();
         let game = self.api_season_service.read().await.read_game(game_uuid);
         if let Some(GameStatus::Coming) = game.as_ref().map(|e| e.status.clone()) {
-            return Some(ApiGameDetails { game: game.unwrap(), events: vec!(), stats: None, players: Players::default() });
+            return Some(ApiGameDetails { game: game.unwrap(), events: vec!(), stats: None, players: vec![] });
         }
 
         let game = game.as_ref()?;

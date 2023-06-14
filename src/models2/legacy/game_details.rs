@@ -74,7 +74,7 @@ pub struct LegacyGameEventInfo {
 pub struct LegacyPlayer {
     firstName: String,
     familyName: String,
-    jersey: i16,
+    jersey: i32,
 }
 
 impl ApiEventType {
@@ -110,7 +110,7 @@ impl From<(ApiGameEvent, ApiGameDetails)> for LegacyGameEvent {
                     ApiEventType::Goal(a) => a.player,
                     ApiEventType::Penalty(a) => a.player,
                     _ => None,
-                }.map(|e| LegacyPlayer { firstName: e.first_name, familyName: e.family_name, jersey: e.jersey.parse().unwrap_or_default() }),
+                }.map(|e| LegacyPlayer { firstName: e.first_name, familyName: e.family_name, jersey: e.jersey }),
                 teamAdvantage:  match event.info.clone() {
                     ApiEventType::Goal(a) => Some(a.team_advantage),
                     _ => None,

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::{api_player_stats_service::{ApiPlayerSeasonStats, SeasonStats}};
+use crate::player_service::{ApiAthlete, ApiAthleteStats};
 
 
 
@@ -31,36 +31,30 @@ pub struct LegacyPlayerStats {
 }
 
 
-impl From<ApiPlayerSeasonStats> for LegacyPlayerStats {
-    fn from(e: ApiPlayerSeasonStats) -> Self {
+impl From<ApiAthlete> for LegacyPlayerStats {
+    fn from(e: ApiAthlete) -> Self {
+        let player_stats = match &e.stats { ApiAthleteStats::Player(e) => Some(e), _ => None };
+        let gk_stats = match &e.stats { ApiAthleteStats::Goalkeeper(e) => Some(e), _ => None };
         LegacyPlayerStats { 
-            player: e.player_id,
-            team: e.team.clone(),
+            player: e.id,
+            team: e.team_code.clone(),
             firstName: e.first_name.clone(),
             familyName: e.family_name.clone(),
             position: e.position.clone(),
             jersey: e.jersey,
-            gp: Some(match e.stats { SeasonStats::Player(e) => e.gp, SeasonStats::Goalkeeper(e) => e.gp }),
+            gp: Some(player_stats.as_ref().map(|e| e.gp).unwrap_or_else(|| gk_stats.map(|e| e.gp).unwrap_or_default())),
             rank: None,
-            toi: get_toi_string(e.stats),
-            g: match e.stats { SeasonStats::Player(e) => Some(e.g), _ => None },
-            a: match e.stats { SeasonStats::Player(e) => Some(e.a), _ => None },
-            sog: match e.stats { SeasonStats::Player(e) => Some(e.sog), _ => None },
-            pim: match e.stats { SeasonStats::Player(e) => Some(e.pim), _ => None },
-            toiSeconds: match e.stats { SeasonStats::Player(e) => Some(e.toi_s), _ => None },
-            pop: match e.stats { SeasonStats::Player(e) => Some(e.plus_minus), _ => None },
+            toi: None,
+            g: player_stats.as_ref().map(|e| e.g),
+            a: player_stats.as_ref().map(|e| e.a),
+            sog: player_stats.as_ref().map(|e| e.sog),
+            pim: player_stats.as_ref().map(|e| e.pim),
+            toiSeconds: player_stats.as_ref().map(|e| e.toi_s),
+            pop: player_stats.as_ref().map(|e| e.plus_minus),
             nep: None,
-            tot_svs: match e.stats { SeasonStats::Goalkeeper(e) => Some(e.svs), _ => None },
-            tot_ga: match e.stats { SeasonStats::Goalkeeper(e) => Some(e.ga), _ => None },
-            tot_soga: match e.stats { SeasonStats::Goalkeeper(e) => Some(e.soga), _ => None }, 
+            tot_svs: gk_stats.as_ref().map(|e| e.svs),
+            tot_ga: gk_stats.as_ref().map(|e| e.ga),
+            tot_soga: gk_stats.as_ref().map(|e| e.soga), 
         }
     }
-}
-
-fn get_toi_string(e: SeasonStats) -> Option<String> {
-    match e { 
-        SeasonStats::Player(_) => Some("13.27".to_string()),
-         _ => None
-    }
-    
 }

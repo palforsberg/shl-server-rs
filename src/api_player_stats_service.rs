@@ -1,9 +1,8 @@
 use std::{collections::HashMap, time::Instant};
 
-use serde::{Serialize, Deserialize};
 use tracing::log;
 
-use crate::{player_service::{PlayerService}, api_season_service::{ApiGame}, db::Db, game_report_service::GameStatus, models::Season};
+use crate::{player_service::{PlayerService, ApiAthleteStats, ApiAthlete, ApiPlayerStats, ApiGoalkeeperStats}, api_season_service::{ApiGame}, db::Db, game_report_service::GameStatus, models::Season};
 
 
 /**
@@ -33,46 +32,30 @@ impl std::fmt::Display for TeamSeasonKey {
     }
 }
 
-// type PlayerKey = i32; // => Vec<PlayerSeasonStats>
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ApiPlayerSeasonStats {
-    pub player_id: i32,
-    pub first_name: String,
-    pub family_name: String,
-    pub jersey: i32,
-    pub season: Season,
-    pub team: String,
-    pub position: String,
-    pub stats: SeasonStats,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Default)]
-pub struct PlayerPlayerSeasonStats {
-    pub a: i32,
-    pub g: i32,
-    pub plus_minus: i32,
-    pub gp: i32,
-    pub sog: i32,
-    pub toi_s: i32,
-    pub pim: i32,
-    pub fow: i32,
-    pub hits: i32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Default)]
-pub struct GoalkeeperSeasonStats {
-    pub ga: i32,
-    pub soga: i32,
-    pub spga: i32,
-    pub svs: i32,
-    pub gp: i32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy)]
-pub enum SeasonStats {
-    Player(PlayerPlayerSeasonStats),
-    Goalkeeper(GoalkeeperSeasonStats),
+impl ApiAthleteStats {
+    fn add(&mut self, stats: &ApiAthleteStats) {
+        match (self, stats) {
+            (ApiAthleteStats::Player(self_stats), ApiAthleteStats::Player(game_stats)) => {
+                self_stats.a += game_stats.a;
+                self_stats.g += game_stats.g;
+                self_stats.gp += game_stats.gp;
+                self_stats.sog += game_stats.sog;
+                self_stats.pim += game_stats.pim;
+                self_stats.plus_minus += game_stats.plus_minus;
+                self_stats.toi_s += game_stats.toi_s;
+                self_stats.fow += game_stats.fow;
+                self_stats.hits += game_stats.hits;
+            },
+            (ApiAthleteStats::Goalkeeper(self_stats), ApiAthleteStats::Goalkeeper(game_stats)) => {
+                self_stats.ga += game_stats.ga;
+                self_stats.soga += game_stats.soga;
+                self_stats.spga += game_stats.spga;
+                self_stats.svs += game_stats.svs;
+                self_stats.gp += game_stats.gp;
+            },
+            (_, _) => log::error!("[API.PLAYERSTATS] Not matching stats types"),
+        }
+    }
 }
 pub struct ApiPlayerStatsService {
 }
@@ -85,59 +68,32 @@ impl ApiPlayerStatsService {
             .filter(|e| !matches!(e.status, GameStatus::Coming))
             .filter_map(|e| PlayerService::read(&e.league, &e.game_uuid).map(|stats| (e, stats)));
         
-        let mut player_map: HashMap<PlayerSeasonKey, ApiPlayerSeasonStats> = HashMap::new();
+        let mut player_map: HashMap<PlayerSeasonKey, ApiAthlete> = HashMap::new();
 
         for (game, stats) in all_players {
-            for e in stats.players {
+            for e in stats {
                 let key = PlayerSeasonKey(e.id, game.season.clone(), e.team_code.clone());
-                let entry = player_map.entry(key).or_insert_with(|| ApiPlayerSeasonStats {
-                    player_id: e.id, 
+                let entry = player_map.entry(key).or_insert_with(|| ApiAthlete {
+                    id: e.id, 
                     season: game.season.clone(),
-                    team: e.team_code.clone(), 
+                    team_code: e.team_code.clone(), 
                     position: e.position.clone(),
                     first_name: e.first_name.clone(),
                     family_name: e.family_name.clone(),
                     jersey: e.jersey,
-                    stats: SeasonStats::Player(PlayerPlayerSeasonStats { ..Default::default() })
+                    stats: match e.stats {
+                        ApiAthleteStats::Player(_) => ApiAthleteStats::Player(ApiPlayerStats { ..Default::default() }),
+                        ApiAthleteStats::Goalkeeper(_) => ApiAthleteStats::Goalkeeper(ApiGoalkeeperStats { ..Default::default() }),
+                    },
                 });
-                if let SeasonStats::Player(player_stats) = &mut entry.stats {
-                    player_stats.a += e.a;
-                    player_stats.g += e.g;
-                    player_stats.gp += 1;
-                    player_stats.sog += e.sog;
-                    player_stats.pim += e.pim;
-                    player_stats.plus_minus += e.plus_minus;
-                    player_stats.toi_s += e.toi_s;
-                    player_stats.fow += e.fow;
-                    player_stats.hits += e.hits;
-                }
-            }
-            for e in stats.goalkeepers {
-                let key = PlayerSeasonKey(e.id, game.season.clone(), e.team_code.clone());
-                let entry = player_map.entry(key).or_insert_with(|| ApiPlayerSeasonStats {
-                    player_id: e.id, 
-                    season: game.season.clone(),
-                    team: e.team_code.clone(), 
-                    position: "GK".to_string(),
-                    first_name: e.first_name.clone(),
-                    family_name: e.family_name.clone(),
-                    jersey: e.jersey,
-                    stats: SeasonStats::Goalkeeper(GoalkeeperSeasonStats { ..Default::default() })
-                });
-                if let SeasonStats::Goalkeeper(a) = &mut entry.stats {
-                    a.ga += e.ga;
-                    a.soga += e.soga;
-                    a.spga += e.spga;
-                    a.svs += e.svs;
-                    a.gp += match e.svs > 0 { true => 1, false => 0 };
-                }
+                entry.stats.add(&e.stats);
             }
         }
 
         log::info!("[API.PLAYERSTATS] Found {} players", player_map.len());
 
         let teams_player_map = player_map.iter().fold(HashMap::new(), |mut map, player_entry| {
-            let key = TeamSeasonKey(player_entry.0.1.clone(), player_entry.1.team.clone());
+            let key = TeamSeasonKey(player_entry.0.1.clone(), player_entry.1.team_code.clone());
             map
                 .entry(key)
                 .or_insert_with(Vec::new)
@@ -165,12 +121,12 @@ impl ApiPlayerStatsService {
         log::info!("[API.PLAYERSTATS] Finished in {:.0?}", before.elapsed());
     }
 
-    pub fn get_player_career_db() -> Db<i32, Vec<ApiPlayerSeasonStats>> {
-        Db::<i32, Vec<ApiPlayerSeasonStats>>::new("v2_api_player_career")
+    pub fn get_player_career_db() -> Db<i32, Vec<ApiAthlete>> {
+        Db::<i32, Vec<ApiAthlete>>::new("v2_api_player_career")
     }
 
-    pub fn get_team_player_db() -> Db<TeamSeasonKey, Vec<ApiPlayerSeasonStats>> {
-        Db::<TeamSeasonKey, Vec<ApiPlayerSeasonStats>>::new("v2_api_team_players")
+    pub fn get_team_player_db() -> Db<TeamSeasonKey, Vec<ApiAthlete>> {
+        Db::<TeamSeasonKey, Vec<ApiAthlete>>::new("v2_api_team_players")
     }
 }
 
@@ -182,7 +138,7 @@ mod tests {
     use chrono::Utc;
     use tempdir::TempDir;
 
-    use crate::{api_player_stats_service::{ApiPlayerStatsService, SeasonStats, TeamSeasonKey}, api_season_service::ApiGame, models2::external::player::{PlayerStatsRsp, EachTeamStats, PlayerName, PlayerStats, GoalkeeperStats}, rest_client, db::Db};
+    use crate::{api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, api_season_service::ApiGame, models2::external::player::{PlayerStatsRsp, EachTeamStats, PlayerName, PlayerStats, GoalkeeperStats}, rest_client, db::Db, player_service::ApiAthleteStats};
 
     fn before() {
         std::env::set_var("DB_PATH", TempDir::new("test").expect("dir to be created").path().to_str().unwrap());
@@ -215,11 +171,11 @@ mod tests {
         
         let stored_player = stored_players.unwrap();
         assert_eq!(stored_player.len(), 1);
-        assert_eq!(stored_player[0].player_id, player_id);
-        assert_eq!(stored_player[0].team, team.to_string());
+        assert_eq!(stored_player[0].id, player_id);
+        assert_eq!(stored_player[0].team_code, team.to_string());
 
-        let stats = match stored_player[0].stats {
-            SeasonStats::Player(a) => a,
+        let stats = match stored_player[0].stats.clone() {
+            ApiAthleteStats::Player(a) => a,
             _ => panic!("not good"),
         };
         assert_eq!(stats.a, 4);
@@ -231,9 +187,9 @@ mod tests {
         let stored_team = team_db.read(&TeamSeasonKey(crate::models::Season::Season2022, team.to_string())).unwrap();
         assert_eq!(stored_team.len(), 1);
         let team_player = stored_team.get(0).unwrap();
-        assert_eq!(team_player.player_id, stored_player[0].player_id);
-        let team_stats = match team_player.stats {
-            SeasonStats::Player(a) => a,
+        assert_eq!(team_player.id, stored_player[0].id);
+        let team_stats = match team_player.stats.clone() {
+            ApiAthleteStats::Player(a) => a,
             _ => panic!("not good"),
         };
         assert_eq!(team_stats.a, stats.a);
@@ -265,11 +221,11 @@ mod tests {
         
         let stored_player = stored_players.unwrap();
         assert_eq!(stored_player.len(), 1);
-        assert_eq!(stored_player[0].player_id, player_id);
-        assert_eq!(stored_player[0].team, team.to_string());
+        assert_eq!(stored_player[0].id, player_id);
+        assert_eq!(stored_player[0].team_code, team.to_string());
 
-        let stats = match stored_player[0].stats {
-            SeasonStats::Goalkeeper(a) => a,
+        let stats = match stored_player[0].stats.clone() {
+            ApiAthleteStats::Goalkeeper(a) => a,
             _ => panic!("not good"),
         };
         assert_eq!(stats.svs, 10);
@@ -304,11 +260,11 @@ mod tests {
         
         let stored_player = stored_players.unwrap();
         assert_eq!(stored_player.len(), 1);
-        assert_eq!(stored_player[0].player_id, player_id);
-        assert_eq!(stored_player[0].team, team.to_string());
+        assert_eq!(stored_player[0].id, player_id);
+        assert_eq!(stored_player[0].team_code, team.to_string());
 
-        let stats = match stored_player[0].stats {
-            SeasonStats::Goalkeeper(a) => a,
+        let stats = match stored_player[0].stats.clone() {
+            ApiAthleteStats::Goalkeeper(a) => a,
             _ => panic!("not good"),
         };
         assert_eq!(stats.svs, 0);

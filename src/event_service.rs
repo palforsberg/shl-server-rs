@@ -8,7 +8,7 @@ use crate::{db::Db, rest_client::{self}, models2::external::{event::{PlayByPlayT
 pub struct Player {
     pub first_name: String,
     pub family_name: String,
-    pub jersey: String,
+    pub jersey: i32,
 }
 impl FromStr for Player {
     type Err = ParseStringError;
@@ -18,10 +18,10 @@ impl FromStr for Player {
             return Err(ParseStringError)
         }
         let parts: Vec<&str> = s.split(' ').collect();
-        let jersey = parts.first().cloned().unwrap_or_default().to_string(); 
+        let jersey = parts.first().cloned().unwrap_or_default().to_string().parse::<i32>().ok().unwrap_or_default();
         let first_name = parts.get(1).cloned().unwrap_or_default().to_string();
         let family_name = s.replace(format!("{jersey} {first_name} ").as_str(), "");
-        if jersey.is_empty() && first_name.is_empty() && family_name.is_empty() {
+        if first_name.is_empty() && family_name.is_empty() {
             Err(ParseStringError)
         } else {
             Ok(Player { jersey, first_name, family_name })
@@ -112,7 +112,7 @@ pub enum ApiEventTypeLevel {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(tag = "type", content = "info")]
+#[serde(tag = "type")]
 pub enum ApiEventType {
     Goal(GoalInfo),
     PeriodEnd,
@@ -271,7 +271,7 @@ mod tests {
         let player = player_res.unwrap();
         assert_eq!(player.first_name, "Mats");
         assert_eq!(player.family_name, "Olle Matsson");
-        assert_eq!(player.jersey, "1");
+        assert_eq!(player.jersey, 1);
     }
 
     #[test]
