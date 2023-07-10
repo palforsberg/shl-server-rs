@@ -51,7 +51,7 @@ pub enum Season {
 
 impl Season {
     pub fn get_current() -> Season {
-        Season::Season2022
+        Season::Season2023
     }
     pub fn is_current(&self) -> bool {
         self == &Season::get_current()

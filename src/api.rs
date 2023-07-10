@@ -1,14 +1,14 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use axum::{Router, extract::{Path, State, WebSocketUpgrade}, response::IntoResponse, Json, routing::{get, post}};
+use axum::{Router, extract::{Path, State, WebSocketUpgrade}, response::{IntoResponse, Response}, Json, routing::{get, post}, http::Request, body::Body};
 use reqwest::StatusCode;
 use serde::{Deserialize};
 use tokio::{sync::{RwLock, broadcast::Sender}};
 use tower::ServiceBuilder;
-use tower_http::compression::CompressionLayer;
-use tracing::log;
+use tower_http::{compression::CompressionLayer, trace::TraceLayer};
+use tracing::{log, Span};
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService};
+use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, game_report_service::GameStatus};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -53,16 +53,28 @@ impl Api {
             .route("/v2/live-activity/end", post(Api::end_live_activity))
             .route("/v2/user", post(Api::add_user))
 
-            .route("/vote", post(Api::vote))
+            .route("/v2/vote", post(Api::vote))
 
 
-            .route("/ws", get(Api::ws_handler))
+            .route("/v2/ws", get(Api::ws_handler))
     
             .route("/", get(Api::root))
             .with_state(state)
             .layer(ServiceBuilder::new()
                 .layer(CompressionLayer::new()) // adds 50ms
-            );
+                .layer(TraceLayer::new_for_http()
+                    .make_span_with(|request: &Request<Body>| {
+                        let url = &request.uri().path();
+                        tracing::info_span!("[API]", "{url}")
+                    })
+                    .on_response(|response: &Response, latency: Duration, _span: &Span| {
+                        if response.status() != StatusCode::OK {
+                            tracing::error!("Response error {:?} in {:?}", response.status(), latency);
+                        } else {
+                            tracing::info!("Response in {:?}", latency);
+                        }
+                    })
+            ));
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         log::info!("[API] Listening on {}", addr);
         _ = axum::Server::bind(&addr)
@@ -98,7 +110,6 @@ impl Api {
     async fn get_game_details(Path(game_uuid): Path<String>, State(state): State<ApiState>) -> Json<Option<ApiGameDetails>> {
         Json(state.game_details_service.read(&game_uuid).await)
     }
-
     
     async fn get_teams() -> impl IntoResponse {
         ApiTeamsService::read_raw()
@@ -149,7 +160,7 @@ impl Api {
         } else {
             (StatusCode::NOT_FOUND, "404".to_string())
         }
-    } 
+    }
 
     async fn get_player(Path(player_id): Path<i32>) -> impl IntoResponse {
         let db = ApiPlayerStatsService::get_player_career_db();
@@ -181,18 +192,20 @@ impl Api {
         UserService::end_live_activity(&req.user_id, &req.game_uuid);
     }
 
-    async fn vote(State(state): State<ApiState>, Json(vote): Json<VoteBody>) -> impl IntoResponse {
+    async fn vote(State(state): State<ApiState>, Json(vote): Json<VoteBody>) -> Result<String, (StatusCode, String)> {
         if let Some(game) = state.season_service.read().await.read_current_season_game(&vote.game_uuid) {
             if game.home_team_code != vote.team_code && game.away_team_code != vote.team_code {
-                (StatusCode::BAD_REQUEST, "Invalid team_code".to_string())
+                Err((StatusCode::BAD_REQUEST, "Invalid team_code".to_string()))
+            } else if game.status != GameStatus::Coming {
+                Err((StatusCode::BAD_REQUEST, "Invalid game status".to_string()))
             } else {
                 let is_home_winner = game.home_team_code == vote.team_code;
                 let vote = Vote { user_id: vote.user_id, game_uuid: vote.game_uuid, team_code: vote.team_code, is_home_winner };
                 let mut vs = state.vote_service.write().await;
-                (StatusCode::OK, serde_json::to_string(&vs.vote(vote)).ok().unwrap_or_default())
+                Ok(serde_json::to_string(&vs.vote(vote)).ok().unwrap_or_default())
             }
         } else {
-            (StatusCode::NOT_FOUND, "404".to_string())
+            Err((StatusCode::BAD_REQUEST, "Invalid game".to_string()))
         }
     }  
 

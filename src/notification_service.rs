@@ -72,7 +72,6 @@ impl ApnAlert {
                 let body = format!("{score_board}\n{bottom}");
                 ApnAlert { title, body, subtitle: None }
             },
-
             _ => {
                 let title = format!("{:?}", event.info);
                 let home_code = teams.get_display_code(&game.home_team_code);
@@ -113,6 +112,13 @@ impl LiveActivityEvent {
                 let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
                 let body = format!("{} • {}", player, a.reason.clone());
                 LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
+            }
+            ApiEventType::PeriodStart => {
+                let title = match event.status {
+                    GameStatus::Period1 => "Period 1",
+                    _ => "Period 1"
+                }.to_string();
+                LiveActivityEvent { title, body: None, team_code: None }
             }
             _ => LiveActivityEvent { title: event.description.clone(), body: None, team_code: None }
         }
@@ -165,7 +171,7 @@ impl NotificationService {
         let size = futures.len();
         join_all(futures).await;
         if size > 0 {
-            log::info!("[NOTIFICATION] Sent notifications in {:.0?}", before.elapsed());
+            log::info!("[NOTIFICATION] Sent {} notifications in {:.0?}", size, before.elapsed());
         }
     }
 
@@ -196,7 +202,7 @@ impl NotificationService {
         let size = futures.len();
         join_all(futures).await;
         if size > 0 {
-            log::info!("[NOTIFICATION] Sent notifications in {:.0?}", before.elapsed());
+            log::info!("[NOTIFICATION] Sent {} notifications in {:.0?}", size, before.elapsed());
         }
     }
 
@@ -216,7 +222,7 @@ impl NotificationService {
                 content_available: None,
                 sound: match alert.is_some() { true => Some("ping.aiff".to_string()), false => None, },
                 badge: None,
-                event: event.map(|e| match e.info.clone() { ApiEventType::GameEnd(_) => "end".to_string(), _ => "update".to_string() }),
+                event: Some("update".to_string()),
                 relevance_score: Some(match alert.is_some() { true => 100, false => 75, }),
                 stale_date: Some(expiration),
                 timestamp: Some(now),

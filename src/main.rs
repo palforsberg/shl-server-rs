@@ -251,9 +251,11 @@ async fn handle_sse_events(
                         tokio::spawn(async move {
                             log::info!("[SSE] Game Ended, Updating in 5min");
                             tokio::time::sleep(Duration::from_secs(60 * 5)).await;
+                            
                             if let Some(g) = season_service.read().await.read_current_season_game(&game_uuid) {
                                 StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                                 PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
+                                // end live activities
                                 UserService::remove_references_to(&game_uuid);
                                 log::info!("[SSE] Updated after Game Ended");
                             }

@@ -5,6 +5,7 @@
 /log
 /.vscode
 /test_db
+/mock-screens
 
 *_test.rs
 Cargo.lock

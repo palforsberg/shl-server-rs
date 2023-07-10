@@ -1,7 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
+use tracing::log;
 
 use crate::db::Db;
 
@@ -10,7 +11,7 @@ pub struct Vote {
     pub user_id: String,
     pub game_uuid: String,
     pub team_code: String,
-    pub is_home_winner: bool,
+    pub is_home_winner: bool, // is home team picked as winner
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -32,6 +33,7 @@ impl VoteService {
     }
 
     pub fn vote(&mut self, vote: Vote) -> VotePerGame {
+        let before = Instant::now();
         let mut all_votes = self.db.read(&"all".to_string()).unwrap_or_default();
 
         all_votes.retain(|e| !(e.game_uuid == vote.game_uuid && e.user_id == vote.user_id));
@@ -41,7 +43,9 @@ impl VoteService {
         
         self.in_mem_per_game = VoteService::get_per_game(&all_votes);
 
-        VoteService::get_aggregate(&all_votes.into_iter().filter(|e| e.game_uuid == vote.game_uuid).collect::<Vec<Vote>>())
+        let result = VoteService::get_aggregate(&all_votes.into_iter().filter(|e| e.game_uuid == vote.game_uuid).collect::<Vec<Vote>>());
+        log::info!("[VOTE] Vote in {:.2?}", before.elapsed());
+        result
     }
 
     fn get_aggregate(entry: &[Vote]) -> VotePerGame {
@@ -66,5 +70,43 @@ impl VoteService {
             result.insert(key, VoteService::get_aggregate(&value));
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests{
+    use tempdir::TempDir;
+
+    use crate::vote_service::Vote;
+
+    use super::VoteService;
+
+    fn before() {
+        std::env::set_var("DB_PATH", TempDir::new("test").expect("dir to be created").path().to_str().unwrap());
+    }
+
+    #[tokio::test]
+    async fn sunny_day() {
+        // Given
+        before();
+        let service = VoteService::new();
+        let vote = Vote { user_id: "user_id".to_string(), game_uuid: "game_uuid".to_string(), team_code: "team_code".to_string(), is_home_winner: true };
+        let vote2 = Vote { user_id: "user_id2".to_string(), game_uuid: "game_uuid".to_string(), team_code: "team_code".to_string(), is_home_winner: true };
+
+        // When
+        service.write().await.vote(vote.clone());
+        service.write().await.vote(vote2.clone());
+
+        service.write().await.vote(vote.clone());
+        service.write().await.vote(vote2.clone());
+
+        service.write().await.vote(vote.clone());
+        service.write().await.vote(vote2.clone());
+
+        // Then
+        let votes = service.read().await.db.read(&"all".to_string()).unwrap_or_default();
+        assert_eq!(votes.len(), 2);
+        assert!(votes.iter().any(|e| { e.game_uuid == vote.game_uuid && e.user_id == vote.user_id }));
+        assert!(votes.iter().any(|e| { e.game_uuid == vote2.game_uuid && e.user_id == vote2.user_id }));
     }
 }

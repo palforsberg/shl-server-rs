@@ -54,7 +54,7 @@ impl<K: Display + Clone, V: DeserializeOwned + Serialize + Clone> Db<K, V> {
     pub fn read_raw(&self, key: &K) -> String {
         let path = self.get_path(&key.to_string());
         let data = std::fs::read_to_string(path);
-        log::info!("[DB] Read raw from file {}", &key.to_string());
+        log::debug!("[DB] Read raw from file {}", &key.to_string());
         data.unwrap_or_default()
     }
 
