@@ -20,6 +20,8 @@ pub struct Config {
 
     #[serde(default="default_db_path")]
     pub db_path: String,
+
+    pub api_key: String,
 }
 
 fn default_db_path() -> String {
