@@ -117,7 +117,9 @@ impl StandingService {
         let mut all_teams: Vec<Standing> = team_map.values().cloned().collect();
 
         all_teams.sort_by(|a, b| {
-            if a.gp == 0 || b.gp == 0 {
+            if a.gp == 0 && b.gp == 0 {
+                a.team_code.partial_cmp(&b.team_code).unwrap()
+            } else if a.gp == 0 || b.gp == 0 {
                 b.gp.partial_cmp(&a.gp).unwrap()
             } else if a.points == b.points {
                 b.diff.partial_cmp(&a.diff).unwrap()
@@ -193,6 +195,10 @@ mod tests {
         assert_eq!(modo.gp, 0);
         assert_eq!(modo.rank, 0);
         assert_eq!(modo.points, 0);
+
+        // if gp == 0, alphabetic order
+        assert_eq!(standings.SHL[2].team_code, "MODO");
+        assert_eq!(standings.SHL[3].team_code, "TIK");
     }
 
     pub fn get_played_game(game_uuid: &str, team1: &str, team2: &str) -> ApiGame {
