@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
-use crate::{game_report_service::GameStatus, models::{Season, GameType}, api_season_service::ApiGame};
+use crate::{models_api::{report::GameStatus, game::ApiGame}, models::{Season, GameType}};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LegacyGame {

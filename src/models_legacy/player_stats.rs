@@ -1,8 +1,6 @@
 use serde::Serialize;
 
-use crate::player_service::{ApiAthlete, ApiAthleteStats};
-
-
+use crate::models_api::athlete::{ApiAthleteStats, ApiAthlete};
 
 #[derive(Serialize, Clone)]
 pub struct LegacyPlayerStats {

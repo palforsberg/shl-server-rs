@@ -3,7 +3,7 @@ use std::{fmt::Display, collections::HashMap, time::Instant};
 use serde::{Deserialize, Serialize};
 use tracing::log;
 
-use crate::{db::Db, models::{League, Season, GameType}, api_season_service::ApiGame};
+use crate::{db::Db, models::{League, Season, GameType}, models_api::{game::ApiGame, standings::{Standing, Standings, TeamCode}}};
 
 
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
@@ -14,24 +14,6 @@ impl Display for StandingKey {
     }
 }
 
-type TeamCode = String;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Standings {
-    pub SHL: Vec<Standing>,
-    pub HA: Vec<Standing>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Standing {
-    team_code: TeamCode,
-    rank: u8,
-    
-    gp: u16,
-    points: u16,
-    diff: i16,
-    league: League,
-}
 
 impl Standing {
     fn add_game(&mut self, g: &ApiGame) {
@@ -156,9 +138,9 @@ mod tests {
     use chrono::Utc;
     use tempdir::TempDir;
 
-    use crate::api_season_service::ApiGame;
+    use crate::models_api::{game::ApiGame, report::GameStatus};
 
-    use super::{StandingService};
+    use super::StandingService;
 
 
     #[test]
@@ -209,7 +191,7 @@ mod tests {
             home_team_result: 3,
             away_team_result: 0,
             start_date_time: Utc::now(),
-            status: crate::game_report_service::GameStatus::Finished,
+            status: GameStatus::Finished,
             shootout: false,
             overtime: false,
             played: true,
@@ -227,7 +209,7 @@ mod tests {
             home_team_result: 3,
             away_team_result: 0,
             start_date_time: Utc::now(),
-            status: crate::game_report_service::GameStatus::Coming,
+            status: GameStatus::Coming,
             shootout: false,
             overtime: false,
             played: false,

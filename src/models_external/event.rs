@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use crate::{models::StringOrNum, game_report_service::GameStatus};
+use crate::{models::StringOrNum, models_api::report::GameStatus};
 
 
 
@@ -19,6 +19,7 @@ pub struct GameReport {
     pub awayTeamScore: StringOrNum,
     pub revision: u16,
 }
+
 impl GameReport {
     pub fn get_status(&self) -> GameStatus {
         match self.gameState.as_str() {
@@ -46,7 +47,6 @@ impl From<i16> for GameStatus {
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct General {

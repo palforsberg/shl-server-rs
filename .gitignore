@@ -2,6 +2,10 @@
 /deployment
 /.idea
 /db
+/db_backup
+/prod_db
+/tests/integration/external
+/tests/integration/db
 /log
 /.vscode
 /test_db
@@ -12,3 +16,4 @@ Cargo.lock
 deploy.sh
 
 start_mock.sh
+backup_db.sh

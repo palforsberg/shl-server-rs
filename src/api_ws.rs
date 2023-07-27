@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use tokio::select;
 use tracing::log;
 
-use crate::{api::ApiState, event_service::ApiGameEvent, game_report_service::ApiGameReport, stats_service::ApiGameStats};
+use crate::{api::ApiState, models_api::{event::ApiGameEvent, report::ApiGameReport, stats::ApiGameStats}};
 
 
 

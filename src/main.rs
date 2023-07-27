@@ -2,32 +2,34 @@
 
 use std::fmt::Display;
 use std::time::Duration;
-use api::{Api};
+use api::Api;
 use api_player_stats_service::ApiPlayerStatsService;
-use api_season_service::{SafeApiSeasonService};
+use api_season_service::SafeApiSeasonService;
 use api_ws::WsMsg;
 use bounded_vec_deque::BoundedVecDeque;
 use config_handler::Config;
 use futures::future::join_all;
 use standing_service::StandingService;
 use tokio::select;
-use tokio::sync::{mpsc};
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, Receiver};
 
-use models::{Season};
+use models::Season;
 use vote_service::VoteService;
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
-use crate::notification_service::{NotificationService};
+use crate::models_api::event::{ApiEventTypeLevel, ApiEventType};
+use crate::models_api::report::{ApiGameReport, GameStatus};
+use crate::notification_service::NotificationService;
 use crate::report_state_machine::{ReportStateMachine, ApiSseMsg};
-use crate::event_service::{EventService, ApiEventType, ApiEventTypeLevel};
-use crate::game_report_service::{GameReportService, ApiGameReport, GameStatus};
+use crate::event_service::EventService;
+use crate::game_report_service::GameReportService;
 use crate::player_service::PlayerService;
-use crate::sse_client::{SseClient};
+use crate::sse_client::SseClient;
 use crate::season_service::SeasonService;
 use crate::stats_service::StatsService;
+use tracing::log;
 use crate::user_service::UserService;
-use tracing::{log};
 use lazy_static::lazy_static;
 
 mod config_handler;
@@ -43,7 +45,9 @@ mod report_state_machine;
 mod api_game_details;
 mod stats_service;
 mod player_service;
-mod models2;
+mod models_external;
+mod models_legacy;
+mod models_api;
 mod vote_service;
 mod standing_service;
 mod api_teams_service;
@@ -131,23 +135,23 @@ async fn start_loop(
             ApiPlayerStatsService::update(&api_games);
         }
 
-        FetchDetailsService::update().await;
-
         let live_games: &Vec<String> = &responses.iter()
             .flat_map(|e| e.1.gameInfo.iter())
             .filter(|e| e.is_potentially_live())
             .map(|e| e.uuid.to_string())
-            .filter(|e| !sent_live_games.contains(e))
             .collect();
 
-        if !live_games.is_empty() {
-            log::info!("[LOOP] Found {} live games", &live_games.len());
-            for game_uuid in live_games {
+        for game_uuid in live_games {
+            if !sent_live_games.contains(game_uuid) {
+                log::info!("[LOOP] Found live game {game_uuid}");
                 live_game_sender.send(game_uuid.to_owned()).await
                     .ok_log("[SSE] Failed to send live game");
                 sent_live_games.push_front(game_uuid.clone());
             }
         }
+
+        FetchDetailsService::update().await;
+
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }  
 }
@@ -228,6 +232,8 @@ async fn handle_sse_events(
 
                         StatsService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
                         PlayerService::update(&g.league, &game_uuid, Some(std::time::Duration::from_secs(30))).await;
+                    } else {
+                        log::error!("[SSE] Notification error, no game found for {}", game_uuid);
                     }
                 },
                 ApiSseMsg::Event(event) => {
@@ -236,6 +242,8 @@ async fn handle_sse_events(
                     if new_event && event.info.get_level() != ApiEventTypeLevel::Low {
                         if let Some(game) = api_season_service.read().await.read_current_season_game(&game_uuid) {
                             notification_service.process(&game, Some(&event)).await;
+                        } else {
+                            log::error!("[SSE] Notification error, no game found for {}", game_uuid);
                         }
                     }
 

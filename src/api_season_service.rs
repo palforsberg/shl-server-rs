@@ -1,31 +1,10 @@
 use std::{time::Instant, sync::Arc, collections::HashMap};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::log;
 
-use crate::{models::{Season, League, GameType, SeasonKey}, game_report_service::{GameReportService, GameStatus, ApiGameReport}, db::Db, models2::external::season::{SeasonRsp}};
+use crate::{models::{Season, SeasonKey}, game_report_service::GameReportService, db::Db, models_external::season::SeasonRsp, models_api::{game::ApiGame, report::{GameStatus, ApiGameReport}}};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApiGame {
-    pub game_uuid: String,
-    pub home_team_code: String,
-    pub away_team_code: String,
-    pub home_team_result: i16,
-    pub away_team_result: i16,
-    pub start_date_time: DateTime<Utc>,
-    pub status: GameStatus,
-    pub shootout: bool,
-    pub overtime: bool,
-    pub played: bool,
-    pub game_type: GameType,
-    pub league: League,
-    pub season: Season,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gametime: Option<String>,
-}
 
 pub struct ApiSeasonService {
     current_season_in_mem: Vec<ApiGame>,
@@ -93,6 +72,7 @@ impl ApiSeasonService {
         let mut result = None;
         if let Some(pos) = self.current_season_in_mem.iter_mut().find(|e| e.game_uuid == report.game_uuid) {
             pos.status = report.status.clone();
+            pos.played = report.status == GameStatus::Finished;
             pos.home_team_result = report.home_team_result;
             pos.away_team_result = report.away_team_result;
             pos.gametime = Some(report.gametime.clone());

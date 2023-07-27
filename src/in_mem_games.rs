@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use tracing::log;
 
-use crate::{api_season_service::ApiGame};
+use crate::models_api::game::ApiGame;
 
 #[allow(dead_code)]
 pub struct InMemGames {

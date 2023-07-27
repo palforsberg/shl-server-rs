@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use tracing::log;
 
-use crate::{db::Db, api::{AddUser, StartLiveActivity}};
+use crate::{db::Db, models_api::{user::AddUser, live_activity::StartLiveActivity}};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LiveActivityEntry {

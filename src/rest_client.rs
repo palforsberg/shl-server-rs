@@ -1,10 +1,10 @@
 use std::time::{Duration, Instant};
 
-use serde::{Serialize};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::log;
 use crate::{LogResult, CONFIG};
-use crate::db::{Db};
+use crate::db::Db;
 use crate::models::{League, GameType, Season, SeasonKey};
 
 pub trait IdentifiableEnum {
@@ -50,7 +50,7 @@ pub fn get_season_url(key: &SeasonKey) -> String {
     format!("{}/sports/game-info?gamePlace=all&played=all&{season_param}&{league_param}&{game_type_param}", CONFIG.get_url(&key.1))
 }
 
-pub async fn get_events(game_uuid: &str) -> Option<Vec<crate::models2::external::event::PlayByPlay>> {
+pub async fn get_events(game_uuid: &str) -> Option<Vec<crate::models_external::event::PlayByPlay>> {
     let url = format!("{}/gameday/play-by-play/initial-events/{game_uuid}", CONFIG.get_url(&League::SHL));
     get_call(&url).await
 }

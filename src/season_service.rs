@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::rest_client::{self};
 use crate::db::Db;
 use crate::models::{GameType, League, SeasonKey, Season};
-use crate::models2::external::season::{SeasonRsp};
+use crate::models_external::season::SeasonRsp;
 
 pub struct SeasonService {
 }

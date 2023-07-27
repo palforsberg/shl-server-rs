@@ -1,33 +1,6 @@
 use std::fmt::Display;
 
-use serde::{Serialize, Deserialize};
-
-use crate::{db::Db, models2::external};
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum GameStatus {
-    Coming,
-    Finished,
-    Period1,
-    Period2,
-    Period3,
-    Overtime,
-    Shootout,
-    Intermission,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApiGameReport {
-    pub game_uuid: String,
-
-    pub gametime: String,
-    pub status: GameStatus,
-
-    pub home_team_code: String,
-    pub away_team_code: String,
-    pub home_team_result: i16,
-    pub away_team_result: i16,
-}
+use crate::{db::Db, models_external, models_api::report::ApiGameReport};
 
 impl Display for ApiGameReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,8 +15,8 @@ impl Display for ApiGameReport {
     }
 }
 
-impl From<external::event::GameReport> for ApiGameReport {
-    fn from(value: external::event::GameReport) -> Self {
+impl From<models_external::event::GameReport> for ApiGameReport {
+    fn from(value: models_external::event::GameReport) -> Self {
         ApiGameReport {
             game_uuid: value.gameUuid.clone(),
             gametime: value.gameTime.clone(),

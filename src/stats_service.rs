@@ -1,22 +1,7 @@
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use crate::{models::League, rest_client::{self}, models_external::game_stats::StatsRsp, db::Db, models_api::stats::{ApiGameStats, ApiGameTeamStats}};
 
-use crate::{models::League, rest_client::{self}, models2::external::game_stats::StatsRsp, db::Db};
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApiGameTeamStats {
-    pub g: i32,
-    pub sog: i32,
-    pub pim: i32,
-    pub fow: i32,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApiGameStats {
-    pub home: ApiGameTeamStats,
-    pub away: ApiGameTeamStats,
-}
 
 
 impl From<StatsRsp> for ApiGameStats {

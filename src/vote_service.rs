@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
 use tracing::log;
 
-use crate::db::Db;
+use crate::{db::Db, models_api::vote::VotePerGame};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Vote {
@@ -14,11 +14,7 @@ pub struct Vote {
     pub is_home_winner: bool, // is home team picked as winner
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct VotePerGame {
-    home_count: u16,
-    away_count: u16,
-}
+
 
 pub struct VoteService {
     db: Db<String, Vec<Vote>>,

@@ -1,15 +1,8 @@
-use std::{time::Duration, str::FromStr, fmt::{Display}};
+use std::{time::Duration, str::FromStr, fmt::Display};
 
-use serde::{Deserialize, Serialize};
+use crate::{db::Db, rest_client::{self}, models_external::{event::{PlayByPlayType, Penalty, Shot, Goal}, self}, models::ParseStringError, models_api::event::*};
 
-use crate::{db::Db, rest_client::{self}, models2::external::{event::{PlayByPlayType, Penalty, Shot, Goal}, self}, game_report_service::{GameStatus}, models::ParseStringError};
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Player {
-    pub first_name: String,
-    pub family_name: String,
-    pub jersey: i32,
-}
 impl FromStr for Player {
     type Err = ParseStringError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -29,24 +22,6 @@ impl FromStr for Player {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Location {
-    x: f32,
-    y: f32,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-
-pub struct GoalInfo {
-    pub team: String,
-    pub player: Option<Player>,
-    pub team_advantage: String,
-    pub assist: Option<String>,
-    pub home_team_result: i16,
-    pub away_team_result: i16,
-    pub location: Location,
-}
-
 impl GoalInfo {
     pub fn new(a: &Goal) -> GoalInfo {
         GoalInfo { 
@@ -61,14 +36,7 @@ impl GoalInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 
-pub struct PenaltyInfo {
-    pub team: String,
-    pub player: Option<Player>,
-    pub reason: String,
-    pub penalty: Option<String>,
-}
 impl PenaltyInfo {
     pub fn new(description: &str, p: &Penalty) -> PenaltyInfo {
         let (player_info, penalty_info) = description.split_once(" utvisas ")
@@ -88,69 +56,12 @@ impl PenaltyInfo {
     }
 }
 
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct ShotInfo {
-    pub team: String,
-    pub location: Location,
-}
 impl ShotInfo {
     pub fn new(info: &Shot) -> ShotInfo {
         ShotInfo { team: info.team.clone(), location: Location { x: info.location.x, y: info.location.y } }
     }
 }
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct GameEndInfo {
-    pub winner: Option<String>,
-}
 
-#[derive(PartialEq)]
-pub enum ApiEventTypeLevel {
-    Low, // only websocket
-    Medium, // live activity, show in UI
-    High // alert
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[serde(tag = "type")]
-pub enum ApiEventType {
-    Goal(GoalInfo),
-    PeriodEnd,
-    PeriodStart,
-    GameEnd(GameEndInfo),
-    GameStart,
-    Penalty(PenaltyInfo),
-    Shot(ShotInfo),
-    Timeout,
-    General,
-}
-impl ApiEventType {
-    pub fn get_level(&self) -> ApiEventTypeLevel {
-        match self {
-            Self::Goal(_) => ApiEventTypeLevel::High,
-            Self::GameStart => ApiEventTypeLevel::High,
-            Self::GameEnd(_) => ApiEventTypeLevel::High,
-            Self::Penalty(_) => ApiEventTypeLevel::Medium,
-            Self::PeriodStart => ApiEventTypeLevel::Medium,
-            Self::PeriodEnd => ApiEventTypeLevel::Medium,
-            Self::Timeout => ApiEventTypeLevel::Medium,
-            Self::Shot(_) => ApiEventTypeLevel::Low,
-            Self::General => ApiEventTypeLevel::Low,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApiGameEvent {
-    pub game_uuid: String,
-    pub event_id: String,
-    pub revision: u16,
-    pub status: GameStatus,
-    pub gametime: String,
-    pub description: String,
-    #[serde(flatten)]
-    pub info: ApiEventType,
-}
 
 impl Display for ApiGameEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -158,7 +69,7 @@ impl Display for ApiGameEvent {
     }
 }
 
-impl external::event::PlayByPlay {
+impl models_external::event::PlayByPlay {
     fn to_type(&self) -> ApiEventType {
         match &self.class {
             PlayByPlayType::General(_) => ApiEventType::General,
@@ -186,7 +97,7 @@ impl external::event::PlayByPlay {
     }
 }
 
-impl external::event::PlayByPlay {
+impl models_external::event::PlayByPlay {
     pub fn into_mapped_event(self, game_uuid: &str) -> ApiGameEvent {
         let info: ApiEventType = self.to_type();
         ApiGameEvent {
@@ -205,22 +116,23 @@ pub struct EventService;
 impl EventService {
  
     pub async fn update(game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
-        let db_raw: Db<String, Vec<external::event::PlayByPlay>> = Db::new("v2_events_raw");
+        let db_raw: Db<String, Vec<models_external::event::PlayByPlay>> = Db::new("v2_events_raw");
         // let db: Db<String, Vec<ApiGameEvent>> = Db::new("v2_events_2");
 
         
         let raw_events = if !db_raw.is_stale(&game_uuid.to_string(), throttle_s) {
             db_raw.read(&game_uuid.to_string()).unwrap_or_default()
         } else {
-            rest_client::get_events(game_uuid).await.unwrap_or_default()
+            let raw_events = rest_client::get_events(game_uuid).await.unwrap_or_default();
+            _ = db_raw.write(&game_uuid.to_string(), &raw_events);
+            raw_events
         };
-        _ = db_raw.write(&game_uuid.to_string(), &raw_events);
 
         Some(raw_events.into_iter().map(|e| e.into_mapped_event(game_uuid)).collect())
     }
 
-    pub fn store_raw(game_uuid: &str, event: &external::event::PlayByPlay) -> bool {
-        let db = Db::<String, Vec<external::event::PlayByPlay>>::new("v2_events_raw");
+    pub fn store_raw(game_uuid: &str, event: &models_external::event::PlayByPlay) -> bool {
+        let db = Db::<String, Vec<models_external::event::PlayByPlay>>::new("v2_events_raw");
         let mut events = db.read(&game_uuid.to_string()).unwrap_or_default();
         let new_event;
         if let Some(pos) = events.iter().position(|e| e.eventId == event.eventId) {
@@ -250,7 +162,7 @@ impl EventService {
     }
 
     pub fn read(game_uuid: &str) -> Vec<ApiGameEvent> {
-        let db = Db::<String, Vec<external::event::PlayByPlay>>::new("v2_events_raw");
+        let db = Db::<String, Vec<models_external::event::PlayByPlay>>::new("v2_events_raw");
         db.read(&game_uuid.to_string()).unwrap_or_default()
             .into_iter().map(|e| e.into_mapped_event(game_uuid))
             .collect()
@@ -260,7 +172,7 @@ impl EventService {
 
 #[cfg(test)]
 mod tests {
-    use crate::models2::external::event::Penalty;
+    use crate::models_external::event::Penalty;
 
     use super::{Player, PenaltyInfo};
 

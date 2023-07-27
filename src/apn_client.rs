@@ -1,8 +1,8 @@
 
-use std::{fmt::Display};
+use std::fmt::Display;
 
-use crate::{CONFIG, game_report_service::GameStatus};
-use axum::{http::{HeaderMap, HeaderValue}};
+use crate::{CONFIG, models_api::report::GameStatus};
+use axum::http::{HeaderMap, HeaderValue};
 use chrono::{DateTime, Utc, Duration};
 use jsonwebtoken::{Header, EncodingKey};
 use reqwest::StatusCode;
@@ -60,7 +60,7 @@ impl ApnClient {
             Err(_) => { return Err(ApnError::Other); },
         };
         let response = match c
-            .post(format!("https://{}/3/device/{}", self.apn_host, device_token))
+            .post(format!("{}/3/device/{}", self.apn_host, device_token))
             .bearer_auth(&self.token.as_ref().expect("").value)
             .headers(headers)
             .json(&push.body)
@@ -74,7 +74,7 @@ impl ApnClient {
             };
 
         if response.status() == StatusCode::OK {
-            log::info!("[APN] Notified {}", device_token);
+            log::debug!("[APN] Notified {}", device_token);
             return Ok(());
         }
         
@@ -91,7 +91,6 @@ impl ApnClient {
         } else {
             Err(ApnError::Other)
         }
-
     }
 
     pub fn update_token(&mut self) {

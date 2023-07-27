@@ -1,57 +1,11 @@
 use std::time::Duration;
 
-use serde::{Serialize, Deserialize};
-
-use crate::{models::{League, Season}, rest_client, models2::external::{player::{PlayerStatsRsp, PlayerName}, self}, db::Db};
+use crate::{models::{League, Season}, rest_client, models_external::{player::{PlayerStatsRsp, PlayerName}, self}, db::Db, models_api::athlete::{ApiAthlete, ApiGoalkeeperStats, ApiAthleteStats, ApiPlayerStats}};
 
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ApiAthlete {
-    pub id: i32,
-    pub first_name: String,
-    pub family_name: String,
-    pub jersey: i32,
-    pub team_code: String,
-    pub position: String,
-    pub season: Season,
-    #[serde(flatten)]
-    pub stats: ApiAthleteStats,
-}
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(tag="type")]
-pub enum ApiAthleteStats {
-    Player(ApiPlayerStats),
-    Goalkeeper(ApiGoalkeeperStats),
-}
-
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct ApiPlayerStats {
-    #[serde(rename = "+/-")]
-    pub plus_minus: i32,
-    pub a: i32,
-    pub fol: i32,
-    pub fow: i32,
-    pub g: i32,
-    pub hits: i32,
-    pub pim: i32,
-    pub sog: i32,
-    pub sw: i32,
-    pub toi_s: i32,
-    pub gp: i32,
-}
-
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct ApiGoalkeeperStats {
-    pub ga: i32,
-    pub soga: i32,
-    pub spga: i32,
-    pub svs: i32,
-    pub gp: i32,
-}
-
-impl From<(PlayerName, external::player::GoalkeeperStats)> for ApiAthlete {
-    fn from(value: (PlayerName, external::player::GoalkeeperStats)) -> Self {
+impl From<(PlayerName, models_external::player::GoalkeeperStats)> for ApiAthlete {
+    fn from(value: (PlayerName, models_external::player::GoalkeeperStats)) -> Self {
         let name = value.0;
         let gk = value.1;
         let stats = ApiGoalkeeperStats {
@@ -78,8 +32,8 @@ fn parse_toi(s: &str) -> i32 {
     let secs: i32 = secs_str.parse().ok().unwrap_or_default();
     min * 60 + secs
 }
-impl From<(PlayerName, external::player::PlayerStats)> for ApiAthlete {
-    fn from(value: (PlayerName, external::player::PlayerStats)) -> Self {
+impl From<(PlayerName, models_external::player::PlayerStats)> for ApiAthlete {
+    fn from(value: (PlayerName, models_external::player::PlayerStats)) -> Self {
         let name = value.0;
         let p = value.1;
         let stats = ApiPlayerStats {

@@ -1,9 +1,9 @@
-use serde::{Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 use crate::models::League;
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
     pub port: u16,
 

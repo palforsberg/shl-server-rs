@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Instant};
 
 use tracing::log;
 
-use crate::{player_service::{PlayerService, ApiAthleteStats, ApiAthlete, ApiPlayerStats, ApiGoalkeeperStats}, api_season_service::{ApiGame}, db::Db, game_report_service::GameStatus, models::Season};
+use crate::{player_service::PlayerService, db::Db, models::Season, models_api::{athlete::{ApiAthleteStats, ApiAthlete, ApiPlayerStats, ApiGoalkeeperStats}, game::ApiGame, report::GameStatus}};
 
 
 /**
@@ -133,12 +133,12 @@ impl ApiPlayerStatsService {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap};
+    use std::collections::HashMap;
 
     use chrono::Utc;
     use tempdir::TempDir;
 
-    use crate::{api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, api_season_service::ApiGame, models2::external::player::{PlayerStatsRsp, EachTeamStats, PlayerName, PlayerStats, GoalkeeperStats}, rest_client, db::Db, player_service::ApiAthleteStats};
+    use crate::{api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, models_external::player::{PlayerStatsRsp, EachTeamStats, PlayerName, PlayerStats, GoalkeeperStats, PlayerInfo}, rest_client, db::Db, models_api::{athlete::ApiAthleteStats, game::ApiGame, report::GameStatus}};
 
     fn before() {
         std::env::set_var("DB_PATH", TempDir::new("test").expect("dir to be created").path().to_str().unwrap());
@@ -280,7 +280,7 @@ mod tests {
             home_team_result: 3,
             away_team_result: 0,
             start_date_time: Utc::now(),
-            status: crate::game_report_service::GameStatus::Finished,
+            status: GameStatus::Finished,
             shootout: false,
             overtime: false,
             played: true,
@@ -293,7 +293,7 @@ mod tests {
 
     pub fn get_player(player_id: i32, team: &str) -> (PlayerStats, PlayerName) {
         let player_stats = PlayerStats {
-            info: crate::models2::external::player::PlayerInfo { playerId: player_id, teamId: team.to_string(), period: 0 },
+            info: PlayerInfo { playerId: player_id, teamId: team.to_string(), period: 0 },
             plus_minus: 1,
             A: 2,
             FOL: 1,
@@ -316,7 +316,7 @@ mod tests {
 
     pub fn get_goalkeeper(player_id: i32, team: &str) -> (GoalkeeperStats, PlayerName) {
         let player_stats = GoalkeeperStats { 
-            info: crate::models2::external::player::PlayerInfo { playerId: player_id, teamId: team.to_string(), period: 0 },
+            info: PlayerInfo { playerId: player_id, teamId: team.to_string(), period: 0 },
             GA: 1,
             NR: 2,
             SOGA: 3,

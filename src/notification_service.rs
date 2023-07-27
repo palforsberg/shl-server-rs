@@ -1,10 +1,10 @@
-use std::{time::Instant};
+use std::time::Instant;
 
 use chrono::{Utc, Duration};
 use futures::{future::join_all, FutureExt};
 use tracing::log;
 
-use crate::{event_service::{ApiGameEvent, ApiEventType, ApiEventTypeLevel, EventService}, api_season_service::ApiGame, user_service::{UserService, User}, apn_client::{ApnClient, ApnPush, ApnAlert, ApnBody, ApnHeader, ApnAps, LiveActivityContentState, ApnPushType, ApnError, LiveActivityReport, LiveActivityEvent}, CONFIG, api_teams_service::{TeamsMap}, game_report_service::GameStatus};
+use crate::{event_service::EventService, user_service::{UserService, User}, apn_client::{ApnClient, ApnPush, ApnAlert, ApnBody, ApnHeader, ApnAps, LiveActivityContentState, ApnPushType, ApnError, LiveActivityReport, LiveActivityEvent}, CONFIG, api_teams_service::TeamsMap, models_api::{event::{ApiGameEvent, ApiEventType, ApiEventTypeLevel}, report::GameStatus, game::ApiGame}};
 
 impl ApiGameEvent {
     fn get_time_info(&self) -> String {
@@ -130,9 +130,9 @@ impl User {
         if self.apn_token.is_none() || self.muted_games.contains(&game.game_uuid) {
             false
         } else { 
-            self.explicit_games.contains(&game.game_uuid) || 
             self.teams.contains(&game.home_team_code) || 
-            self.teams.contains(&game.away_team_code)
+            self.teams.contains(&game.away_team_code) ||
+            self.explicit_games.contains(&game.game_uuid)
         }
     }
 }
@@ -202,7 +202,7 @@ impl NotificationService {
         let size = futures.len();
         join_all(futures).await;
         if size > 0 {
-            log::info!("[NOTIFICATION] Sent {} notifications in {:.0?}", size, before.elapsed());
+            log::info!("[NOTIFICATION] Sent {} live activities in {:.0?}", size, before.elapsed());
         }
     }
 

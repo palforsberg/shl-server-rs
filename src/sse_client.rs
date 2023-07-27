@@ -1,14 +1,14 @@
 
-use futures::{StreamExt};
+use futures::StreamExt;
 use reqwest_eventsource::{EventSource, Event};
-use tokio::{task::JoinHandle, sync::mpsc::{Receiver}};
+use tokio::{task::JoinHandle, sync::mpsc::Receiver};
 use tracing::log;
 
-use crate::{models2::external::{self, event::{SseEvent}}, LogResult, CONFIG};
+use crate::{models_external::{self, event::SseEvent}, LogResult, CONFIG};
 
 pub struct SseClient;
 impl SseClient {
-    pub async fn spawn_listener(game_uuid: &str) -> (JoinHandle<()>, Receiver<(String, external::event::GameReport)>, Receiver<(String, external::event::PlayByPlay)>) {
+    pub async fn spawn_listener(game_uuid: &str) -> (JoinHandle<()>, Receiver<(String, models_external::event::GameReport)>, Receiver<(String, models_external::event::PlayByPlay)>) {
         let (report_sender, report_receiver) = tokio::sync::mpsc::channel(10);
         let (event_sender, event_receiver) = tokio::sync::mpsc::channel(10);
         let uuid = game_uuid.to_string();

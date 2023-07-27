@@ -2,13 +2,12 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{Router, extract::{Path, State, WebSocketUpgrade}, response::{IntoResponse, Response}, Json, routing::{get, post}, http::{Request, HeaderMap}, body::Body};
 use reqwest::StatusCode;
-use serde::{Deserialize};
-use tokio::{sync::{RwLock, broadcast::Sender}};
+use tokio::sync::{RwLock, broadcast::Sender};
 use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing::{log, Span};
 
-use crate::{SafeApiSeasonService, api_game_details::{ApiGameDetailsService, ApiGameDetails}, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::{UserService}, models2::legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, game_report_service::GameStatus, CONFIG};
+use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, VotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}}};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -196,7 +195,7 @@ impl Api {
         headers: HeaderMap,
         State(state): State<ApiState>, 
         Json(vote): Json<VoteBody>
-    ) -> Result<String, (StatusCode, String)> {
+    ) -> Result<Json<VotePerGame>, (StatusCode, String)> {
         let key = headers.get("x-api-key").and_then(|e| e.to_str().ok()).unwrap_or_default();
         if key != CONFIG.api_key {
             Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))
@@ -209,7 +208,7 @@ impl Api {
                 let is_home_winner = game.home_team_code == vote.team_code;
                 let vote = Vote { user_id: vote.user_id, game_uuid: vote.game_uuid, team_code: vote.team_code, is_home_winner };
                 let mut vs = state.vote_service.write().await;
-                Ok(serde_json::to_string(&vs.vote(vote)).ok().unwrap_or_default())
+                Ok(Json(vs.vote(vote)))
             }
         } else {
             Err((StatusCode::BAD_REQUEST, "Invalid game".to_string()))
@@ -229,32 +228,3 @@ impl Api {
 }
 
 
-#[derive(Deserialize)]
-struct VoteBody {
-    game_uuid: String,
-    user_id: String,
-    team_code: String,
-}
-
-#[derive(Deserialize)]
-pub struct AddUser {
-    pub id: String,
-    pub teams: Vec<String>,
-    pub apn_token: Option<String>,
-    pub ios_version: Option<String>,
-    pub app_version: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct StartLiveActivity {
-    pub user_id: String,
-    pub token: String,
-    pub game_uuid: String,
-}
-
-
-#[derive(Deserialize)]
-pub struct EndLiveActivity {
-    pub user_id: String,
-    pub game_uuid: String,
-}

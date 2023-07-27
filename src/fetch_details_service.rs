@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tracing::log;
 
-use crate::{stats_service::StatsService, api_season_service::{ApiGame, ApiSeasonService}, player_service::PlayerService, event_service::EventService, db::Db};
+use crate::{stats_service::StatsService, api_season_service::ApiSeasonService, player_service::PlayerService, event_service::EventService, db::Db, models_api::game::ApiGame};
 
 pub struct FetchDetailsService;
 impl FetchDetailsService {

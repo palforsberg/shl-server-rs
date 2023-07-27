@@ -2,7 +2,7 @@ use std::{time::Instant, cmp::Ordering};
 
 use tracing::log;
 
-use crate::{event_service::{ApiGameEvent, ApiEventType, GameEndInfo}, game_report_service::{GameReportService, ApiGameReport, GameStatus}};
+use crate::{game_report_service::GameReportService, models_api::{report::{ApiGameReport, GameStatus}, event::{ApiGameEvent, ApiEventType, GameEndInfo}}};
 
 pub enum ApiSseMsg {
     Report(ApiGameReport),
