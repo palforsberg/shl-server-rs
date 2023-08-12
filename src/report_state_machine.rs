@@ -4,11 +4,6 @@ use tracing::log;
 
 use crate::{game_report_service::GameReportService, models_api::{report::{ApiGameReport, GameStatus}, event::{ApiGameEvent, ApiEventType, GameEndInfo}}};
 
-pub enum ApiSseMsg {
-    Report(ApiGameReport),
-    Event(ApiGameEvent),
-}
-
 impl ApiGameReport {
     fn get_winner(&self) -> Option<String> {
         match self.home_team_result.cmp(&self.away_team_result) {

@@ -2,44 +2,21 @@ use std::{sync::Arc, time::Duration, collections::HashMap, net::SocketAddr, conv
 
 use async_stream::try_stream;
 use axum::{Router, extract::{Path, State, Query}, response::{IntoResponse, Sse, sse::{KeepAlive, Event}}, Json, body::StreamBody, routing::{get, post}};
-use chrono::Utc;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use shl_server_rs::{models_external::{season::{SeasonGame, GameTeamInfo, SeasonRsp, SeriesInfo}, event::SseEvent}, models::StringOrNum};
+use shl_server_rs::{models_external::{season::{SeasonGame, SeasonRsp}, event::SseEvent}, models::{Season, GameType, League}};
 use tokio::{sync::{RwLock, broadcast::Sender}, task::JoinHandle};
 use tokio_util::io::ReaderStream;
 
 use super::models_apn::ApnBody;
-
-#[derive(Deserialize)]
-struct SportsQuery {
-    seasonUuid: String,
-    seriesUuid: String,
-    gameTypeUuid: String,
-}
-
-#[derive(Clone)]
-pub struct AppState {
-    pub sender: Sender<Event>,
-    pub notifications: Vec<(String, ApnBody)>,
-    pub live_acitivies: HashMap<String, u16>,
-}
-
-
-async fn remove_first<T>(vec: Arc<RwLock<Vec<T>>>) -> Option<T> {
-    if vec.read().await.is_empty() {
-        None
-    } else {
-        Some(vec.write().await.remove(0))
-    }
-}
 
 pub struct ExternalServer {
     port: u16,
     handles: Vec<JoinHandle<()>>,
 
     sse_events: Arc<RwLock<Vec<SseEvent>>>,
-}
+    pub api_state: Arc<RwLock<AppState>>,
+}   
 
 impl Drop for ExternalServer {
     fn drop(&mut self) {
@@ -49,31 +26,71 @@ impl Drop for ExternalServer {
     }
 }
 
+#[derive(Eq, PartialEq, Hash, Clone)]
+pub struct GameKey(Season, League, GameType);
+
+#[derive(Clone)]
+pub struct AppState {
+    pub sender: Sender<SseEvent>,
+    pub notifications: Vec<(String, ApnBody)>,
+    pub live_acitivies: HashMap<String, u16>,
+    pub stat_calls: HashMap<String, u16>,
+    pub added_games: HashMap<GameKey, Vec<SeasonGame>>,
+}
+
+
+#[derive(Deserialize)]
+struct SportsQuery {
+    seasonUuid: String,
+    seriesUuid: String,
+    gameTypeUuid: String,
+}
+
 impl ExternalServer {
     pub fn new(port: u16) -> ExternalServer {
-        ExternalServer { port, handles: vec![], sse_events: Arc::new(RwLock::new(vec![])) }
+
+        let sse_events = Arc::new(RwLock::new(vec![]));
+        let (sse_handle, sse_sender) = ExternalServer::start_sse_listener(sse_events.clone(), Duration::from_micros(10));
+
+        let api_state = Arc::new(RwLock::new(AppState { 
+            sender: sse_sender, 
+            notifications: vec![], 
+            live_acitivies: HashMap::new(),
+            stat_calls: HashMap::new(),
+            added_games: HashMap::new()
+        }));
+
+        ExternalServer {
+            port,
+            handles: vec![sse_handle],
+            sse_events,
+            api_state,
+        }
     }
 
-    pub async fn start(&mut self) -> Arc<RwLock<AppState>> {
-        let (sse_handle, sse_sender) = self.start_sse_listener(Duration::from_micros(10));
-
-        let external_mock_state = Arc::new(RwLock::new(AppState { sender: sse_sender, notifications: vec![], live_acitivies: HashMap::new() }));
+    pub async fn start(&mut self) {
         let external_mock = {
             let port = self.port;
-            let state = external_mock_state.clone();
+            let state = self.api_state.clone();
             tokio::spawn(async move { ExternalServer::serve_external_data(state, port).await })
         };
 
         self.handles.push(external_mock);
-        self.handles.push(sse_handle);
 
         tokio::time::sleep(Duration::from_secs(2)).await; // wait for mock to start
-        
-        external_mock_state
     }
 
     pub async fn push_events(&mut self, events: Vec<SseEvent>) {
         self.sse_events.write().await.extend(events);
+    }
+
+    pub async fn add_game(&mut self, season: Season, game_type: GameType, game: SeasonGame) {
+        let mut safe_state = self.api_state.write().await;
+        let added_games = safe_state.added_games
+            .entry(GameKey(season, game.seriesInfo.code.clone(), game_type))
+            .or_insert_with(Vec::new);
+
+        added_games.push(game);
     }
 
     pub fn get_url(&self) -> String {
@@ -100,7 +117,10 @@ impl ExternalServer {
         ExternalServer::get_file_from(format!("./tests/integration/external/gameday/boxscore/{}", game_uuid)).await
     }
     
-    async fn get_periodstats_file(Path(game_uuid): Path<String>) -> impl IntoResponse {
+    async fn get_periodstats_file(Path(game_uuid): Path<String>, State(state): State<Arc<RwLock<AppState>>>) -> impl IntoResponse {
+        let mut safe_state = state.write().await;
+        let val = safe_state.stat_calls.entry(game_uuid.clone()).or_insert_with(|| 0);
+        *val += 1;
         ExternalServer::get_file_from(format!("./tests/integration/external/gameday/periodstats/{}", game_uuid)).await
     }
     
@@ -116,19 +136,17 @@ impl ExternalServer {
         }
     }
 
-    async fn get_sports_file(query: Query<SportsQuery>) -> impl IntoResponse {
+    async fn get_sports_file(query: Query<SportsQuery>, State(state): State<Arc<RwLock<AppState>>>) -> impl IntoResponse {
         let path = format!("./tests/integration/external/sports/game-info?gamePlace=all&played=all&seasonUuid={}&seriesUuid={}&gameTypeUuid={}", query.seasonUuid, query.seriesUuid, query.gameTypeUuid);
+
+        let league = ExternalServer::parse_series_uuid(&query.seriesUuid).expect("[TEST] invalid league id");
+        let game_type = ExternalServer::parse_game_type_uuid(&query.gameTypeUuid).expect("[TEST] invalid game type id");
+        let season = ExternalServer::parse_season_uuid(&query.seasonUuid).expect("[TEST] invalid season id");
         let mut data = std::fs::read_to_string(path).ok().and_then(|e| serde_json::from_str::<SeasonRsp>(&e).ok()).unwrap();
-        data.gameInfo.push(SeasonGame { 
-            uuid: "qcv-34ekyLqu8".to_string(), 
-            homeTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: StringOrNum::Number(0) }, 
-            awayTeamInfo: GameTeamInfo { code: "OHK".to_string(), score: StringOrNum::Number(0) }, 
-            startDateTime: Utc::now() - chrono::Duration::minutes(5),
-            state: "pre-game".to_string(), 
-            shootout: false,
-            overtime: false, 
-            seriesInfo: SeriesInfo { code: shl_server_rs::models::League::SHL },
-        });
+        let safe_state = state.read().await;
+        if let Some(games_to_add) = safe_state.added_games.get(&GameKey(season, league, game_type)) {
+            data.gameInfo.extend(games_to_add.clone());
+        }
         Json(data)
     }
     
@@ -138,7 +156,17 @@ impl ExternalServer {
         Sse::new(try_stream! {
             loop {
                 match receiver.recv().await {
-                    Ok(i) => { yield i; },
+                    Ok(msg) => {
+                        let msg_game_uuid = match (msg.gameReport.as_ref(), msg.playByPlay.as_ref()) {
+                            (Some(e), _) => e.gameUuid.clone(),
+                            (_, Some(e)) => e.gameUuid.clone(),
+                            _ => panic!(),
+                        };
+                        if msg_game_uuid == game_uuid { // is the game_uuid of the message is the same as the game_uuid in the URL
+                            let json_str = serde_json::to_string(&msg).expect("should encode to json");
+                            yield Event::default().data(json_str);
+                        }
+                    },
                     Err(e) => { tracing::error!(error = ?e, "Failed to get"); }
                 }
             }
@@ -146,20 +174,18 @@ impl ExternalServer {
         .keep_alive(KeepAlive::default())
     }
 
-    fn start_sse_listener(&self, sleep_time: Duration) -> (JoinHandle<()>, Sender<Event>) {
+    fn start_sse_listener(sse_events: Arc<RwLock<Vec<SseEvent>>>, sleep_time: Duration) -> (JoinHandle<()>, Sender<SseEvent>) {
         let (sender, _) = tokio::sync::broadcast::channel(10);
         println!("[TEST] Start SSE events");
         let handle = {
             let sender = sender.clone();
-            let events = self.sse_events.clone();
+            let events = sse_events.clone();
             tokio::spawn(async move {
                 loop {
                     if sender.receiver_count() > 0 {
                         println!("[TEST] SSE subscribers now {}", sender.receiver_count());
                         while let Some(entry) = remove_first(events.clone()).await {
-                            println!("[TEST] Sending event");
-                            let json_str = serde_json::to_string(&entry).expect("should encode to json");
-                            sender.send(Event::default().data(json_str)).expect("should broadcast event");
+                            sender.send(entry).expect("should broadcast event");
                             tokio::time::sleep(sleep_time).await;
                             
                             if sender.receiver_count() == 0 {
@@ -184,5 +210,43 @@ impl ExternalServer {
         let body = StreamBody::new(stream);
         Ok(body)
     }
-    
+
+
+    fn parse_series_uuid(s: &str) -> Result<League, ()> {
+        match s {
+            "qQ9-bb0bzEWUk" => Ok(League::SHL),
+            "qQ9-594cW8OWD" => Ok(League::HA),
+            _ => Err(()),
+        }
+    }
+
+    fn parse_game_type_uuid(str: &str) -> Result<GameType, ()> {
+        match str {
+            "qQ9-af37Ti40B" => Ok(GameType::Season),
+            "qQ9-7debq38kX" => Ok(GameType::PlayOff),
+            "qRf-347BaDIOc" => Ok(GameType::Demotion),
+            _ => Err(()),
+        }
+    }
+
+
+    fn parse_season_uuid(str: &str) -> Result<Season, ()> {
+        match str {
+            "qcz-3NvSZ2Cmh" => Ok(Season::Season2023),
+            "qbN-XMFfjGVt" => Ok(Season::Season2022),
+            "qZl-8qa6OaFXf" => Ok(Season::Season2021),
+            "qY7-AdVh5z1XJ" => Ok(Season::Season2020),
+            "qWX-334j11U5o1" => Ok(Season::Season2019),
+            "qUv-YXiuQN45" => Ok(Season::Season2018),
+            _ => Err(()),
+        }
+    } 
 }
+
+async fn remove_first<T>(vec: Arc<RwLock<Vec<T>>>) -> Option<T> {
+    if vec.read().await.is_empty() {
+        None
+    } else {
+        Some(vec.write().await.remove(0))
+    }
+}   

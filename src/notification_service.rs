@@ -64,7 +64,7 @@ impl ApnAlert {
                     false => format!("Mål för {}", team_name),
                 };
 
-                let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
+                let player = a.player.as_ref().map(|p| p.to_str()).unwrap_or_default();
                 let home_code = teams.get_display_code(&game.home_team_code);
                 let away_code = teams.get_display_code(&game.away_team_code);
                 let score_board = format!("{} {} - {} {}", home_code, a.home_team_result, a.away_team_result, away_code);
@@ -103,13 +103,13 @@ impl LiveActivityEvent {
                     true => format!("MÅÅÅL för {}! 🎉", team_name),
                     false => format!("Mål för {}", team_name),
                 };
-                let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
+                let player = a.player.as_ref().map(|p| p.to_str()).unwrap_or_default();
                 let body = format!("{player} • {}", event.get_time_info());
                 LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
             },
             ApiEventType::Penalty(a) => {
                 let title = format!("Utvisning - {}", a.penalty.clone().unwrap_or_default());
-                let player = a.player.as_ref().map(|p| format!("{}. {}", p.first_name.chars().next().unwrap(), p.family_name)).unwrap_or_default();
+                let player = a.player.as_ref().map(|p| p.to_str()).unwrap_or_default();
                 let body = format!("{} • {}", player, a.reason.clone());
                 LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
             }
@@ -125,6 +125,23 @@ impl LiveActivityEvent {
     }
 }
 
+impl crate::models_api::event::Player {
+    pub fn to_str(&self) -> String {
+        format!("{}. {}", self.first_name.chars().next().unwrap(), self.family_name)
+    }
+}
+impl ApiGame {
+    fn to_live_activity_string(&self) -> String {
+        format!("{} {} - {} {} :: {:?} • {}",
+            &self.home_team_code,
+            self.home_team_result,
+            self.away_team_result,
+            &self.away_team_code,
+            self.status,
+            self.gametime.clone().unwrap_or_default()
+        )
+    }
+}
 impl User {
     fn should_send(&self, game: &ApiGame) -> bool {
         if self.apn_token.is_none() || self.muted_games.contains(&game.game_uuid) {
@@ -150,12 +167,12 @@ impl NotificationService {
         }
     }
 
-    pub async fn process(&mut self, game: &ApiGame, event: Option<&ApiGameEvent>) {
+    pub async fn process(&mut self, game: &ApiGame, event: &ApiGameEvent) {
         let before = Instant::now();
         self.apn_client.update_token();
         let mut futures = vec!();
         for user in UserService::stream_all() {
-            if let Some((device_token, push)) = self.get_apn_push(&user, game, event, true) {
+            if let Some((device_token, push)) = self.get_apn_push(&user, game, Some(event), true) {
                 let push_type = push.header.push_type.clone();
                 let future = self.apn_client.push_notification(push, device_token).map(move |e| {
                     if let Err(ApnError::BadDeviceToken) = e {
@@ -171,7 +188,7 @@ impl NotificationService {
         let size = futures.len();
         join_all(futures).await;
         if size > 0 {
-            log::info!("[NOTIFICATION] Sent {} notifications in {:.0?}", size, before.elapsed());
+            log::info!("[PUSH] Event {event} to {} users in {:.0?}", size, before.elapsed());
         }
     }
 
@@ -202,7 +219,7 @@ impl NotificationService {
         let size = futures.len();
         join_all(futures).await;
         if size > 0 {
-            log::info!("[NOTIFICATION] Sent {} live activities in {:.0?}", size, before.elapsed());
+            log::info!("[PUSH] Live {} to {} users in {:.0?}", game.to_live_activity_string(), size, before.elapsed());
         }
     }
 

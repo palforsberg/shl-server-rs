@@ -11,7 +11,7 @@ use crate::{api::ApiState, models_api::{event::ApiGameEvent, report::ApiGameRepo
 
 
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct WsMsg {
     pub game_uuid: String,
     
@@ -19,7 +19,7 @@ pub struct WsMsg {
     pub body: WsMsgBody,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all="snake_case")]
 pub enum WsMsgBody {
     Event { event: ApiGameEvent },

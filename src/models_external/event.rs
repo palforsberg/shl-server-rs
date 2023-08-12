@@ -138,6 +138,7 @@ pub enum PlayByPlayType {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Action {
     pub actions: Vec<PlayByPlay>,
+    pub gameUuid: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

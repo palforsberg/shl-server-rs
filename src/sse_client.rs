@@ -6,11 +6,15 @@ use tracing::log;
 
 use crate::{models_external::{self, event::SseEvent}, LogResult, CONFIG};
 
+
+pub enum SseMsg {
+    Report(models_external::event::GameReport),
+    Event(models_external::event::PlayByPlay),
+}
 pub struct SseClient;
 impl SseClient {
-    pub async fn spawn_listener(game_uuid: &str) -> (JoinHandle<()>, Receiver<(String, models_external::event::GameReport)>, Receiver<(String, models_external::event::PlayByPlay)>) {
-        let (report_sender, report_receiver) = tokio::sync::mpsc::channel(10);
-        let (event_sender, event_receiver) = tokio::sync::mpsc::channel(10);
+    pub async fn spawn_listener(game_uuid: &str) -> (JoinHandle<()>, Receiver<(String, SseMsg)>) {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1000);
         let uuid = game_uuid.to_string();
         let handle = tokio::spawn(async move {
             log::info!("[SSE] Start listen to {uuid}");
@@ -31,15 +35,15 @@ impl SseClient {
                     if let Some(event) = event {
                         if let Some(report) = event.gameReport {
                             if report.revision != last_report_id {
-                                report_sender.send((uuid.to_string(), report.clone())).await
-                                    .ok_log("[SSSE] Error sending report");
+                                sender.send((uuid.to_string(), SseMsg::Report(report.clone()))).await
+                                    .ok_log("[SSE] Error sending report");
                             }
                             last_report_id = report.revision;
                         }
                         if let Some(event) = event.playByPlay.map(|e| e.actions[0].clone()) {
                             if event.hash != last_event_id {
-                                event_sender.send((uuid.to_string(), event.clone())).await
-                                    .ok_log("[SSSE] Error sending event");
+                                sender.send((uuid.to_string(), SseMsg::Event(event.clone()))).await
+                                    .ok_log("[SSE] Error sending event");
                             }
                             last_event_id = event.hash.clone();
                         }
@@ -48,6 +52,6 @@ impl SseClient {
                 }
             }
         });
-        (handle, report_receiver, event_receiver)
+        (handle, receiver)
     }
 }

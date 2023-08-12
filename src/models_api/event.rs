@@ -38,7 +38,7 @@ impl ApiEventType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ApiGameEvent {
     pub game_uuid: String,
     pub event_id: String,

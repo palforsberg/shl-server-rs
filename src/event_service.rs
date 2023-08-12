@@ -117,9 +117,7 @@ impl EventService {
  
     pub async fn update(game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
         let db_raw: Db<String, Vec<models_external::event::PlayByPlay>> = Db::new("v2_events_raw");
-        // let db: Db<String, Vec<ApiGameEvent>> = Db::new("v2_events_2");
 
-        
         let raw_events = if !db_raw.is_stale(&game_uuid.to_string(), throttle_s) {
             db_raw.read(&game_uuid.to_string()).unwrap_or_default()
         } else {
@@ -146,28 +144,12 @@ impl EventService {
         new_event
     }
 
-    pub fn store(game_uuid: &str, event: &ApiGameEvent) -> bool {
-        let db = Db::<String, Vec<ApiGameEvent>>::new("v2_events_2");
-        let mut events: Vec<ApiGameEvent> = db.read(&game_uuid.to_string()).unwrap_or_default();
-        let new_event;
-        if let Some(pos) = events.iter().position(|e| e.event_id == event.event_id) {
-            events[pos] = event.clone();
-            new_event = false;
-        } else {
-            events.push(event.clone());
-            new_event = true;
-        }
-        _ = db.write(&game_uuid.to_string(), &events);
-        new_event
-    }
-
     pub fn read(game_uuid: &str) -> Vec<ApiGameEvent> {
         let db = Db::<String, Vec<models_external::event::PlayByPlay>>::new("v2_events_raw");
         db.read(&game_uuid.to_string()).unwrap_or_default()
             .into_iter().map(|e| e.into_mapped_event(game_uuid))
             .collect()
     }
-
 }
 
 #[cfg(test)]

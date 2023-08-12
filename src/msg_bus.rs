@@ -1,17 +1,24 @@
 use tokio::sync::broadcast::{Sender, Receiver, self};
 
-use crate::{game_report_service::ApiGameReport, event_service::ApiGameEvent, stats_service::ApiGameStats, LogResult};
+use crate::{models_api::{event::ApiGameEvent, report::ApiGameReport}, LogResult};
+
 
 #[derive(Clone)]
 pub enum Msg {
-    SseEvent { event: ApiGameEvent, game_uuid: String, new_event: bool },
-    SseReport{ report: ApiGameReport },
+    Event { event: ApiGameEvent, game_uuid: String, new_event: bool },
+    Report{ report: ApiGameReport, game_uuid: String },
     SseClosed { game_uuid: String },
-    GameEnded { game_uuid: String },
-    GameStarted { game_uuid: String },
-    StatsFetched { game_uuid: String, stats: ApiGameStats },
 }
 
+impl Msg {
+    pub fn get_game_uuid(&self) -> &String {
+        match self {
+            Msg::SseClosed { game_uuid } => game_uuid,
+            Msg::Event { event:_, game_uuid, new_event:_ } => game_uuid,
+            Msg::Report { report:_, game_uuid} => game_uuid,
+         }
+    }
+}
 
 pub struct MsgBus {
     sender: Sender<Msg>,
