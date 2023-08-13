@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use serde::{Serialize, Deserialize};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc::Sender};
 use tracing::log;
 
 use crate::{db::Db, models_api::vote::VotePerGame};
@@ -19,16 +19,19 @@ pub struct Vote {
 pub struct VoteService {
     db: Db<String, Vec<Vote>>,
     in_mem_per_game: HashMap<String, VotePerGame>,
+    on_vote: Sender<(String, VotePerGame)>,
 }
 pub type SafeVoteService = Arc<RwLock<VoteService>>;
 impl VoteService {
-    pub fn new() -> SafeVoteService {
+    pub fn new(
+        on_vote: Sender<(String, VotePerGame)>,
+    ) -> SafeVoteService {
         let db = Db::new("v2_votes"); 
-        let in_mem_per_game = VoteService::get_per_game(&db.read(&"all".to_string()).unwrap_or_default());
-        Arc::new(RwLock::new(VoteService { db, in_mem_per_game, }))
+        let in_mem_per_game = VoteService::generate_per_game(&db.read(&"all".to_string()).unwrap_or_default());
+        Arc::new(RwLock::new(VoteService { db, in_mem_per_game, on_vote }))
     }
 
-    pub fn vote(&mut self, vote: Vote) -> VotePerGame {
+    pub async fn vote(&mut self, vote: Vote) -> VotePerGame {
         let before = Instant::now();
         let mut all_votes = self.db.read(&"all".to_string()).unwrap_or_default();
 
@@ -37,11 +40,23 @@ impl VoteService {
 
         _ = self.db.write(&"all".to_string(), &all_votes);
         
-        self.in_mem_per_game = VoteService::get_per_game(&all_votes);
+        self.in_mem_per_game = VoteService::generate_per_game(&all_votes);
 
         let result = VoteService::get_aggregate(&all_votes.into_iter().filter(|e| e.game_uuid == vote.game_uuid).collect::<Vec<Vote>>());
         log::info!("[VOTE] Vote in {:.2?}", before.elapsed());
+
+        if let Some(vote_per_game) = self.in_mem_per_game.get(&vote.game_uuid) {
+            _  = self.on_vote.send((vote.game_uuid, *vote_per_game)).await;
+        }
         result
+    }
+
+    pub fn get(&self, game_uuid: &str) -> Option<VotePerGame> {
+        self.in_mem_per_game.get(game_uuid).copied()
+    }
+
+    pub fn get_all(&self) -> HashMap<String, VotePerGame> {
+        self.in_mem_per_game.clone()
     }
 
     fn get_aggregate(entry: &[Vote]) -> VotePerGame {
@@ -55,7 +70,7 @@ impl VoteService {
         })
     }
 
-    fn get_per_game(all_votes: &Vec<Vote>) -> HashMap<String, VotePerGame> {
+    fn generate_per_game(all_votes: &Vec<Vote>) -> HashMap<String, VotePerGame> {
         let mut votes_per_game = HashMap::new();
         for k in all_votes {
             votes_per_game.entry(k.game_uuid.clone()).or_insert_with(Vec::new).push(k.clone());
@@ -85,19 +100,20 @@ mod tests{
     async fn sunny_day() {
         // Given
         before();
-        let service = VoteService::new();
+        let (sender, _) = tokio::sync::mpsc::channel(1);
+        let service = VoteService::new(sender);
         let vote = Vote { user_id: "user_id".to_string(), game_uuid: "game_uuid".to_string(), team_code: "team_code".to_string(), is_home_winner: true };
         let vote2 = Vote { user_id: "user_id2".to_string(), game_uuid: "game_uuid".to_string(), team_code: "team_code".to_string(), is_home_winner: true };
 
         // When
-        service.write().await.vote(vote.clone());
-        service.write().await.vote(vote2.clone());
+        service.write().await.vote(vote.clone()).await;
+        service.write().await.vote(vote2.clone()).await;
 
-        service.write().await.vote(vote.clone());
-        service.write().await.vote(vote2.clone());
+        service.write().await.vote(vote.clone()).await;
+        service.write().await.vote(vote2.clone()).await;
 
-        service.write().await.vote(vote.clone());
-        service.write().await.vote(vote2.clone());
+        service.write().await.vote(vote.clone()).await;
+        service.write().await.vote(vote2.clone()).await;
 
         // Then
         let votes = service.read().await.db.read(&"all".to_string()).unwrap_or_default();

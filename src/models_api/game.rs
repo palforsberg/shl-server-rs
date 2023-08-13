@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::models::{GameType, League, Season};
 
-use super::report::GameStatus;
+use super::{report::GameStatus, vote::ApiVotePerGame};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApiGame {
@@ -23,4 +23,7 @@ pub struct ApiGame {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gametime: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub votes: Option<ApiVotePerGame>,
 }

@@ -199,6 +199,7 @@ mod tests {
             league: crate::models::League::SHL,
             season: crate::models::Season::Season2022,
             gametime: None,
+            votes: None,
         }
     }
     pub fn get_coming_game(game_uuid: &str, team1: &str, team2: &str) -> ApiGame {
@@ -217,6 +218,7 @@ mod tests {
             league: crate::models::League::SHL,
             season: crate::models::Season::Season2022,
             gametime: None,
+            votes: None,
         }
     }
 }

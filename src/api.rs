@@ -7,7 +7,7 @@ use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing::{log, Span};
 
-use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, VotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}}};
+use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, ApiVotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}}};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -23,7 +23,7 @@ pub struct Api;
 impl Api {
     pub async fn serve(port: u16, season_service: SafeApiSeasonService, vote_service: SafeVoteService, broadcast_sender: Sender<WsMsg>) {
         let state = ApiState {
-            game_details_service: ApiGameDetailsService::new(season_service.clone()),
+            game_details_service: ApiGameDetailsService::new(season_service.clone(), vote_service.clone()),
             season_service,
             vote_service,
             broadcast_sender,
@@ -195,7 +195,7 @@ impl Api {
         headers: HeaderMap,
         State(state): State<ApiState>, 
         Json(vote): Json<VoteBody>
-    ) -> Result<Json<VotePerGame>, (StatusCode, String)> {
+    ) -> Result<Json<ApiVotePerGame>, (StatusCode, String)> {
         let key = headers.get("x-api-key").and_then(|e| e.to_str().ok()).unwrap_or_default();
         if key != CONFIG.api_key {
             Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))
@@ -208,7 +208,7 @@ impl Api {
                 let is_home_winner = game.home_team_code == vote.team_code;
                 let vote = Vote { user_id: vote.user_id, game_uuid: vote.game_uuid, team_code: vote.team_code, is_home_winner };
                 let mut vs = state.vote_service.write().await;
-                Ok(Json(vs.vote(vote)))
+                Ok(Json(vs.vote(vote).await.into()))
             }
         } else {
             Err((StatusCode::BAD_REQUEST, "Invalid game".to_string()))

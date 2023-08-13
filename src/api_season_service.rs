@@ -3,7 +3,7 @@ use std::{time::Instant, sync::Arc, collections::HashMap};
 use tokio::sync::RwLock;
 use tracing::log;
 
-use crate::{models::{Season, SeasonKey}, game_report_service::GameReportService, db::Db, models_external::season::SeasonRsp, models_api::{game::ApiGame, report::{GameStatus, ApiGameReport}}};
+use crate::{models::{Season, SeasonKey}, game_report_service::GameReportService, db::Db, models_external::season::SeasonRsp, models_api::{game::ApiGame, report::{GameStatus, ApiGameReport}, vote::VotePerGame}};
 
 
 pub struct ApiSeasonService {
@@ -20,13 +20,18 @@ impl ApiSeasonService {
             db: Db::<Season, Vec<ApiGame>>::new("v2_season_decorated")
         }))
     }
-    pub fn update(&mut self, season: &Season, responses: &[(SeasonKey, SeasonRsp)]) -> Vec<ApiGame> {
+    pub fn update(&mut self, 
+        season: &Season, 
+        responses: &[(SeasonKey, SeasonRsp)],
+        votes_per_game: HashMap<String, VotePerGame>,
+    ) -> Vec<ApiGame> {
         let before = Instant::now();
         let decorated_games: Vec<ApiGame> = responses.iter().flat_map(|(key, rsp)| rsp.gameInfo.iter().map(|e| {
             let base_status = match e.state.as_str() {
                 "post-game" => GameStatus::Finished,
                 _ => GameStatus::Coming,
             };
+            let votes = votes_per_game.get(&e.uuid).copied();
             let mut mapped = ApiGame {
                 game_uuid: e.uuid.clone(),
                 home_team_code: e.homeTeamInfo.code.clone(),
@@ -42,6 +47,7 @@ impl ApiSeasonService {
                 league: key.1.clone(),
                 game_type: key.2.clone(),
                 gametime: None,
+                votes: votes.map(|e| e.into()),
             };
             if e.is_potentially_live() {
                 if let Some(report) = GameReportService::read(&e.uuid) {
@@ -81,6 +87,13 @@ impl ApiSeasonService {
             _ = self.db.write(&pos.season.clone(), &self.current_season_in_mem);
         }
         result
+    }
+
+    pub fn update_from_votes(&mut self, game_uuid: &str, votes: VotePerGame) {
+        if let Some(pos) = self.current_season_in_mem.iter_mut().find(|e| e.game_uuid == game_uuid) {
+            pos.votes = Some(votes.into());
+            _ = self.db.write(&pos.season.clone(), &self.current_season_in_mem);
+        }
     }
 
     pub fn read_current_season_game(&self, game_uuid: &str) -> Option<ApiGame> {

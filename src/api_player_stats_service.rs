@@ -288,6 +288,7 @@ mod tests {
             league: crate::models::League::SHL,
             season: crate::models::Season::Season2022,
             gametime: None,
+            votes: None,
         }
     }
 

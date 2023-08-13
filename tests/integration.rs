@@ -3,7 +3,7 @@ use chrono::Utc;
 use common::models_apn::ApnBody;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use shl_server_rs::{models_api::{standings::Standings, game_details::ApiGameDetails, game::ApiGame, user::AddUser, report::GameStatus, live_activity::StartLiveActivity, vote::{VoteBody, VotePerGame}}, models_external::{event::{SseEvent, GameReport}, season::{SeasonGame, GameTeamInfo, SeriesInfo}}, models::{Season, StringOrNum, GameType}};
+use shl_server_rs::{models_api::{standings::Standings, game_details::ApiGameDetails, game::ApiGame, user::AddUser, report::GameStatus, live_activity::StartLiveActivity, vote::{VoteBody, VotePerGame, ApiVotePerGame}}, models_external::{event::{SseEvent, GameReport}, season::{SeasonGame, GameTeamInfo, SeriesInfo}}, models::{Season, StringOrNum, GameType}};
 use std::{time::Instant, vec, fs::File, io::BufReader};
 use tempdir::TempDir;
 use std::io::BufRead;
@@ -57,7 +57,7 @@ async fn test_vote_service() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 
     // When - add multiple votes
-    for i in 0..100 {
+    for i in 0..=100 {
         let user_id = format!("user_id_SAIK_{i}");
         let req = AddUser { id: user_id.clone(), teams: vec!["SAIK".to_string()], apn_token: Some(format!("apn_token_SAIK_{i}")), ios_version: None, app_version: None };
         server.add_user(&req).await?;
@@ -65,10 +65,36 @@ async fn test_vote_service() -> Result<(), Box<dyn std::error::Error>> {
         let res = server.vote(req, Some("API_KEY")).await?;
         // Then - should be successful and response should be updated vote_per_game
         assert_eq!(res.status(), StatusCode::OK);
-        let vote_per_game: VotePerGame = res.json().await?;
-        assert_eq!(vote_per_game.home_count, i + 1);
-        assert_eq!(vote_per_game.away_count, 0);
+        let vote_per_game: ApiVotePerGame = res.json().await?;
+        let expected: ApiVotePerGame = VotePerGame { home_count: i + 1, away_count: 0 }.into();
+        assert_eq!(vote_per_game.home_perc, expected.home_perc);
+        assert_eq!(vote_per_game.away_perc, expected.away_perc);
+        assert_eq!(vote_per_game.home_perc + vote_per_game.away_perc, 100);
     }
+    // When - add multiple votes
+    for i in 0..=9 {
+        let user_id = format!("user_id_OHK_{i}");
+        let req = AddUser { id: user_id.clone(), teams: vec!["SAIK".to_string()], apn_token: Some(format!("apn_token_OHK_{i}")), ios_version: None, app_version: None };
+        server.add_user(&req).await?;
+        let req = &VoteBody { game_uuid: "game_uuid_1".to_string(), user_id, team_code: "OHK".to_string() };
+        let res = server.vote(req, Some("API_KEY")).await?;
+        // Then - should be successful and response should be updated vote_per_game
+        assert_eq!(res.status(), StatusCode::OK);
+        let vote_per_game: ApiVotePerGame = res.json().await?;
+        let expected: ApiVotePerGame = VotePerGame { home_count: 101, away_count: i + 1 }.into();
+        assert_eq!(vote_per_game.away_perc, expected.away_perc);
+        assert_eq!(vote_per_game.home_perc, expected.home_perc);
+        assert_eq!(vote_per_game.home_perc + vote_per_game.away_perc, 100);
+    }
+
+    let details = server.get_api_game_details("game_uuid_1").await?;
+    assert_eq!(details.votes.unwrap().home_perc, 91);
+    assert_eq!(details.votes.unwrap().away_perc, 9);
+
+    let season_games = server.get_api_games(Season::Season2023).await?;
+    let season_game = season_games.iter().find(|e| e.game_uuid == "game_uuid_1").unwrap();
+    assert_eq!(details.votes.unwrap().home_perc, season_game.votes.unwrap().home_perc);
+    assert_eq!(details.votes.unwrap().away_perc, season_game.votes.unwrap().away_perc);
 
     Ok(())
 }

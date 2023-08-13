@@ -10,6 +10,7 @@ use api_ws::WsMsg;
 use bounded_vec_deque::BoundedVecDeque;
 use config_handler::Config;
 use futures::future::join_all;
+use models_api::vote::VotePerGame;
 use msg_bus::{Msg, MsgBus};
 use sse_client::SseMsg;
 use standing_service::StandingService;
@@ -18,7 +19,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::sync::mpsc::{Sender, Receiver};
 
 use models::Season;
-use vote_service::VoteService;
+use vote_service::{VoteService, SafeVoteService};
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
 use crate::models_api::event::ApiEventTypeLevel;
@@ -93,30 +94,35 @@ async fn main() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
+    let (live_game_sender, live_game_receiver) = mpsc::channel(1000);
+    let (broadcast_sender, _) = tokio::sync::broadcast::channel(1000);
+    let (vote_sender, vote_receiver) = mpsc::channel(1000);
+
+
     let api_season_service = ApiSeasonService::new();
-    let vote_service = VoteService::new();
+    let vote_service = VoteService::new(vote_sender);
     for season in Season::get_all() {
         let (responses, _) = SeasonService { }.update(&season).await;
-        let api_games = api_season_service.write().await.update(&season, &responses);
+        let api_games = api_season_service.write().await.update(&season, &responses, vote_service.read().await.get_all());
         
         StandingService::update(&season, &api_games);
     }
-    
     let all_games = ApiSeasonService::read_all();
     ApiPlayerStatsService::update(&all_games);
 
-    let (live_game_sender, live_game_receiver) = mpsc::channel(1000);
-    let (broadcast_sender, _) = tokio::sync::broadcast::channel(1000);
+    
     let msg_bus = Arc::new(MsgBus::new());
 
     let h1 = {
         let api_season_service = api_season_service.clone();
         let broadcast_sender = broadcast_sender.clone();
+        let vote_service = vote_service.clone();
         tokio::spawn(async { Api::serve(CONFIG.port, api_season_service, vote_service, broadcast_sender).await })
     };
     let h2 = {
         let api_season_service = api_season_service.clone();
-        tokio::spawn(async { handle_loop(live_game_sender, api_season_service).await })
+        let vote_service = vote_service.clone();
+        tokio::spawn(async { handle_loop(live_game_sender, api_season_service, vote_service).await })
     };
     let h3 = {
         let api_season_service = api_season_service.clone();
@@ -129,12 +135,20 @@ async fn main() {
         let msg_bus = msg_bus.clone();
         tokio::spawn(async { handle_stats_fetch(msg_bus, api_season_service).await })
     };
+    let h5 = {
+        let api_season_service = api_season_service.clone();
+        tokio::spawn(async { handle_votes(api_season_service, vote_receiver).await; })
+    };
 
-    join_all(vec!(h1, h2, h3, h4)).await;
+    join_all(vec!(h1, h2, h3, h4, h5)).await;
 
 }
 
-async fn handle_loop(live_game_sender: Sender<String>, api_season_service: SafeApiSeasonService) {
+async fn handle_loop(
+    live_game_sender: Sender<String>,
+    api_season_service: SafeApiSeasonService,
+    vote_service: SafeVoteService,
+) {
     let season_service = SeasonService { };
     let mut sent_live_games = BoundedVecDeque::new(40);
 
@@ -142,7 +156,7 @@ async fn handle_loop(live_game_sender: Sender<String>, api_season_service: SafeA
         let season = Season::get_current();
         let (responses, updated) = season_service.update(&season).await;
         if updated {
-            let api_games = api_season_service.write().await.update(&season, &responses);
+            let api_games = api_season_service.write().await.update(&season, &responses, vote_service.read().await.get_all());
             
             StandingService::update(&season, &api_games);
             ApiPlayerStatsService::update(&api_games);
@@ -256,6 +270,14 @@ async fn handle_stats_fetch(msg_bus: Arc<MsgBus>, api_season_service: SafeApiSea
                 StatsService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
                 PlayerService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
             }
+        }
+    }
+}
+
+async fn handle_votes(api_season_service: SafeApiSeasonService, mut vote_receiver: Receiver<(String, VotePerGame)>) {
+    loop {
+        if let Some((game_uuid, votes_per_game)) = vote_receiver.recv().await {
+            api_season_service.write().await.update_from_votes(&game_uuid, votes_per_game);
         }
     }
 }
