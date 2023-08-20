@@ -51,10 +51,6 @@ impl VoteService {
         result
     }
 
-    pub fn get(&self, game_uuid: &str) -> Option<VotePerGame> {
-        self.in_mem_per_game.get(game_uuid).copied()
-    }
-
     pub fn get_all(&self) -> HashMap<String, VotePerGame> {
         self.in_mem_per_game.clone()
     }

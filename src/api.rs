@@ -23,7 +23,7 @@ pub struct Api;
 impl Api {
     pub async fn serve(port: u16, season_service: SafeApiSeasonService, vote_service: SafeVoteService, broadcast_sender: Sender<WsMsg>) {
         let state = ApiState {
-            game_details_service: ApiGameDetailsService::new(season_service.clone(), vote_service.clone()),
+            game_details_service: ApiGameDetailsService::new(season_service.clone()),
             season_service,
             vote_service,
             broadcast_sender,

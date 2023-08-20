@@ -3,29 +3,26 @@ use std::{time::Instant, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::log;
 
-use crate::{event_service::EventService, api_season_service::ApiSeasonService, stats_service::StatsService, player_service::PlayerService, models_api::{game_details::ApiGameDetails, report::GameStatus, vote::ApiVotePerGame}, vote_service::VoteService};
+use crate::{event_service::EventService, api_season_service::ApiSeasonService, stats_service::StatsService, player_service::PlayerService, models_api::{game_details::ApiGameDetails, report::GameStatus}};
 
 
 #[derive(Clone)]
 pub struct ApiGameDetailsService {
     api_season_service: Arc<RwLock<ApiSeasonService>>,
-    vote_service: Arc<RwLock<VoteService>>,
 }
 
 impl ApiGameDetailsService {
     pub fn new(
         api_season_service: Arc<RwLock<ApiSeasonService>>,
-        vote_service: Arc<RwLock<VoteService>>,
     ) -> ApiGameDetailsService {
-        ApiGameDetailsService { api_season_service, vote_service }
+        ApiGameDetailsService { api_season_service }
     }
     pub async fn read(&self, game_uuid: &str) -> Option<ApiGameDetails> {
         let before = Instant::now();
         let game = self.api_season_service.read().await.read_game(game_uuid);
-        let votes: Option<ApiVotePerGame> = self.vote_service.read().await.get(game_uuid).map(|e| e.into());
 
         if let Some(GameStatus::Coming) = game.as_ref().map(|e| e.status.clone()) {
-            return Some(ApiGameDetails { game: game.unwrap(), events: vec!(), stats: None, players: vec![], votes });
+            return Some(ApiGameDetails { game: game.unwrap(), events: vec!(), stats: None, players: vec![] });
         }
 
         let game = game.as_ref()?;
@@ -41,7 +38,6 @@ impl ApiGameDetailsService {
             events: events.unwrap_or_default().into_iter().rev().collect(),
             stats,
             players,
-            votes,
         });
 
         log::debug!("[API.DETAILS] read {:.2?}", before.elapsed());

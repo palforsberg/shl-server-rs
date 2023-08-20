@@ -88,13 +88,13 @@ async fn test_vote_service() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let details = server.get_api_game_details("game_uuid_1").await?;
-    assert_eq!(details.votes.unwrap().home_perc, 91);
-    assert_eq!(details.votes.unwrap().away_perc, 9);
+    assert_eq!(details.game.votes.unwrap().home_perc, 91);
+    assert_eq!(details.game.votes.unwrap().away_perc, 9);
 
     let season_games = server.get_api_games(Season::Season2023).await?;
     let season_game = season_games.iter().find(|e| e.game_uuid == "game_uuid_1").unwrap();
-    assert_eq!(details.votes.unwrap().home_perc, season_game.votes.unwrap().home_perc);
-    assert_eq!(details.votes.unwrap().away_perc, season_game.votes.unwrap().away_perc);
+    assert_eq!(details.game.votes.unwrap().home_perc, season_game.votes.unwrap().home_perc);
+    assert_eq!(details.game.votes.unwrap().away_perc, season_game.votes.unwrap().away_perc);
 
     Ok(())
 }
