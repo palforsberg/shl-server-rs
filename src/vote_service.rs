@@ -1,8 +1,7 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc};
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::{RwLock, mpsc::Sender};
-use tracing::log;
 
 use crate::{db::Db, models_api::vote::VotePerGame};
 
@@ -32,7 +31,6 @@ impl VoteService {
     }
 
     pub async fn vote(&mut self, vote: Vote) -> VotePerGame {
-        let before = Instant::now();
         let mut all_votes = self.db.read(&"all".to_string()).unwrap_or_default();
 
         all_votes.retain(|e| !(e.game_uuid == vote.game_uuid && e.user_id == vote.user_id));
@@ -43,7 +41,6 @@ impl VoteService {
         self.in_mem_per_game = VoteService::generate_per_game(&all_votes);
 
         let result = VoteService::get_aggregate(&all_votes.into_iter().filter(|e| e.game_uuid == vote.game_uuid).collect::<Vec<Vote>>());
-        log::info!("[VOTE] Vote in {:.2?}", before.elapsed());
 
         if let Some(vote_per_game) = self.in_mem_per_game.get(&vote.game_uuid) {
             _  = self.on_vote.send((vote.game_uuid, *vote_per_game)).await;

@@ -22,8 +22,9 @@ use models::Season;
 use vote_service::{VoteService, SafeVoteService};
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
-use crate::models_api::event::ApiEventTypeLevel;
+use crate::models_api::event::{ApiEventTypeLevel, ApiGameEvent};
 use crate::models_api::report::{ApiGameReport, GameStatus};
+use crate::models_external::event::LiveState;
 use crate::notification_service::NotificationService;
 use crate::report_state_machine::ReportStateMachine;
 use crate::event_service::EventService;
@@ -65,6 +66,7 @@ mod in_mem_games;
 mod api_player_stats_service;
 mod playoff_service;
 mod msg_bus;
+mod status_service;
 
 #[cfg(test)]
 mod mock_test;
@@ -155,17 +157,19 @@ async fn handle_loop(
     loop {
         let season = Season::get_current();
         let (responses, updated) = season_service.update(&season).await;
-        if updated {
+        
+        let api_games = if updated {
             let api_games = api_season_service.write().await.update(&season, &responses, vote_service.read().await.get_all());
-            
             StandingService::update(&season, &api_games);
             ApiPlayerStatsService::update(&api_games);
-        }
+            api_games
+        } else {
+            api_season_service.read().await.read_current_season()
+        };
 
-        let live_games: &Vec<String> = &responses.iter()
-            .flat_map(|e| e.1.gameInfo.iter())
+        let live_games: &Vec<String> = &api_games.iter()
             .filter(|e| e.is_potentially_live())
-            .map(|e| e.uuid.to_string())
+            .map(|e| e.game_uuid.to_string())
             .collect();
 
         for game_uuid in live_games {
@@ -201,58 +205,119 @@ async fn handle_sse(
                 let mut rsm = ReportStateMachine::new();
                 let (handle, mut sse_msg_receiver) = SseClient::spawn_listener(&uuid).await;
                 loop {
+                    let mut game_report: Option<ApiGameReport> = None;
+                    let mut game_event: Option<(ApiGameEvent, bool)> = None;
                     select! {
                         Some((game_uuid, msg)) = sse_msg_receiver.recv() => {
                             match msg {
                                 SseMsg::Report(raw_report) => {
                                     let report: ApiGameReport = raw_report.into();
-                                    let report_event = rsm.process(&report);
-                                    GameReportService::store(&game_uuid, &report);
-                                    log::info!("[SSE] REPORT {report}");
-
-                                    let updated_api_game = api_season_service.write().await.update_from_report(&report);
-                                
-                                    if let Some(g) = updated_api_game {
-                                        if let Some(report) = report_event {
-                                            notification_service.write().await.process(&g, &report).await;
-                                        }
-                                        notification_service.write().await.process_live_activity(&g).await;
-                                    } else {
-                                        log::error!("[SSE] Notification error, no game found for {}", game_uuid);
-                                    }
-
-                                    _ = broadcast_sender.send(report.clone().into());
-                                    msg_bus.send(Msg::Report { report, game_uuid });
+                                    game_report = Some(report);
                                 },
-
                                 SseMsg::Event(raw_event) => {
-                                    let new_event = EventService::store_raw(&uuid, &raw_event);
+                                    let new_event = EventService::store_older_raw(&uuid, &raw_event);
                                     let event = raw_event.into_mapped_event(&uuid);
                                     log::info!("[SSE] EVENT {event}");
-        
-                                    if new_event && event.info.get_level() != ApiEventTypeLevel::Low {
-                                        if let Some(game) = api_season_service.read().await.read_current_season_game(&game_uuid) {
-                                            notification_service.write().await.process(&game, &event).await;
+                                    game_event = Some((event, new_event));
+                                },
+                                SseMsg::LiveEvent(live_event) => {
+                                    log::info!("[SSE] LIVE_EVENT {live_event}");
+                                    let new_event = EventService::store_raw(&uuid, &live_event);
+                                    if new_event {
+                                        game_report = ApiGameReport::from(&live_event, api_season_service.read().await.read_current_season_game(&game_uuid));
+                                    } else {
+                                        log::info!("Old event");
+                                    }
+                                    game_event = Some((live_event.into(), new_event));
+                                },
+                                SseMsg::TeamStats(_) => {
+                                    if let Some(report) = GameReportService::read(&game_uuid) {
+                                        log::info!("[SSE] TEAM_STATS {report}");
+                                    }
+                                },
+                                SseMsg::GameTime(game_time) => {
+                                    let report = GameReportService::read(&game_uuid);
+                                    if let Some(mut report) = report {
+                                        let game_time_status = GameStatus::from(game_time.period.to_num());
+                                        if report.status == game_time_status {
+                                            report.gametime = game_time.periodTime;
+                                            log::info!("[SSE] GAME_TIME {report}");
                                         } else {
-                                            log::error!("[SSE] Notification error, no game found for {}", game_uuid);
+                                            log::info!("[SSE] invalid GAME_TIME {:#?} {}", game_time_status, game_time.periodTime);
+                                        }
+                                        game_report = Some(report);
+                                    }
+                                },
+                                SseMsg::LiveState(live_state) => {
+                                    log::info!("[SSE] LIVE_STATE {:?} -> {:?}", live_state.previousLiveState, live_state.liveState);
+                                    match (live_state.previousLiveState, live_state.liveState) {
+                                        (_, LiveState::Ongoing) => {
+                                            // GameStart
+                                        },
+                                        (_, LiveState::Decided) => {
+                                            // GameEnd
+                                            log::info!("[SSE] Live State GameEnd");
+                                            let report = GameReportService::read(&game_uuid);
+                                            if let Some(mut report) = report {
+                                                report.status = GameStatus::Finished;
+                                                game_report = Some(report);
+                                            }
+                                        },
+                                        (_, _) => {
+
                                         }
                                     }
-                
-                                    _ = broadcast_sender.send(event.clone().into());
-                                    msg_bus.send(Msg::Event { event, new_event, game_uuid });
-                                },
+                                }
                             }
                         },
                         // if 5 minutes has passed without any new events and status is finished => abort
+                        // TODO: abort 5 minutes after game end
                         _ = tokio::time::sleep(Duration::from_secs(60 * 5)) => {
                             if let Some(GameStatus::Finished) = api_season_service.read().await.read_current_season_game(&uuid).map(|e| e.status) {
                                 log::info!("[SSE] Game Finished, Abort {}", uuid);
 
                                 UserService::remove_references_to(&uuid);
-                                msg_bus.send(Msg::SseClosed { game_uuid });
+                                msg_bus.send(Msg::SseClosed { game_uuid: uuid.clone() });
                                 break;
                             }
                         }
+                    }
+
+                    if let Some(report) = game_report {
+                        let old_report = GameReportService::read(&uuid);
+                        if !report.is_valid_update(&old_report) {
+                            log::info!("[SSE] OLD REPORT {} vs {}", report, old_report.map(|e| e.to_string()).unwrap_or("".to_string()));
+                        } else {
+                            let report_event = rsm.process(&report);
+                            GameReportService::store(&uuid, &report);
+                            log::info!("[SSE] REPORT {report}");
+                            let updated_api_game = api_season_service.write().await.update_from_report(&report);
+                            
+                            if let Some(g) = updated_api_game {
+                                if let Some(report) = report_event {
+                                    notification_service.write().await.process(&g, &report).await;
+                                } else {
+                                    notification_service.write().await.process_live_activity(&g).await;
+                                }
+                            } else {
+                                log::error!("[SSE] Notification error, no game found for {}", uuid);
+                            }
+
+                            _ = broadcast_sender.send(report.clone().into());
+                            msg_bus.send(Msg::Report { report, game_uuid: uuid.clone() });
+                        }
+
+                    }
+                    if let Some((event, new_event)) = game_event {
+                        if new_event && event.info.get_level() != ApiEventTypeLevel::Low {
+                            if let Some(game) = api_season_service.read().await.read_current_season_game(uuid.as_str()) {
+                                notification_service.write().await.process(&game, &event).await;
+                            } else {
+                                log::error!("[SSE] Notification error, no game found for {}", uuid);
+                            }
+                        }
+                        _ = broadcast_sender.send(event.clone().into());
+                        msg_bus.send(Msg::Event { event, new_event, game_uuid: uuid.clone() });
                     }
                 }
                 handle.abort();
@@ -266,10 +331,16 @@ async fn handle_stats_fetch(msg_bus: Arc<MsgBus>, api_season_service: SafeApiSea
     let mut receiver = msg_bus.subscribe();
     loop {
         if let Ok(msg) = receiver.recv().await {
-            if let Some(g) = api_season_service.read().await.read_current_season_game(msg.get_game_uuid()) {
+            let all_games = api_season_service.read().await.read_current_season();
+            if let Some(g) = all_games.iter().find(|e| e.game_uuid == msg.get_game_uuid().as_str()) {
                 StatsService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
                 PlayerService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
+                if g.status == GameStatus::Finished {
+                    log::info!("Game {g} finished, update standings");
+                    StandingService::update(&Season::get_current(), &all_games);
+                }
             }
+            
         }
     }
 }

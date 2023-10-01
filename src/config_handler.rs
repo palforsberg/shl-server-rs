@@ -22,10 +22,24 @@ pub struct Config {
     pub db_path: String,
 
     pub api_key: String,
+
+    #[serde(default="default_sse_sleep")]
+    pub sse_sleep: u64,
+
+    #[serde(default="default_true")]
+    pub sse_file_append: bool
 }
 
 fn default_db_path() -> String {
     "./db".to_string()
+}
+
+fn default_sse_sleep() -> u64 {
+    100
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Config {

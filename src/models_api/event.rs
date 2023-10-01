@@ -83,7 +83,6 @@ pub struct GoalInfo {
     pub team: String,
     pub player: Option<Player>,
     pub team_advantage: String,
-    pub assist: Option<String>,
     pub home_team_result: i16,
     pub away_team_result: i16,
     pub location: Location,

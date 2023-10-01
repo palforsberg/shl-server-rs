@@ -24,7 +24,9 @@ impl From<models_external::event::GameReport> for ApiGameReport {
             home_team_code: value.homeTeamId.unwrap_or("TBD".to_string()),
             away_team_code: value.awayTeamId.unwrap_or("TBD".to_string()),
             home_team_result: value.homeTeamScore.to_num(),
-            away_team_result: value.awayTeamScore.to_num()
+            away_team_result: value.awayTeamScore.to_num(),
+            overtime: None,
+            shootout: None,
         }
     }
 }

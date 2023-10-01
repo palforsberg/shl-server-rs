@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::models::{StringOrNum, League};
@@ -13,6 +13,16 @@ pub struct GameTeamInfo {
     #[serde(default = "default_TBD")]
     pub code: String,
     pub score: StringOrNum,
+    pub names: TeamNames,
+}
+
+impl GameTeamInfo {
+    pub fn get_code(&self) -> String {
+        match self.code.as_str() {
+            "HERR" => self.names.code.clone(),
+            _ => self.code.clone(),
+        }
+    } 
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SeriesInfo {
@@ -30,13 +40,6 @@ pub struct SeasonGame {
     pub overtime: bool,
 
     pub seriesInfo: SeriesInfo
-}
-
-impl SeasonGame {
-    pub fn is_potentially_live(&self) -> bool {
-        let fifteen_min_in_future = Utc::now() + Duration::minutes(15);
-        self.state == "pre-game" && (self.startDateTime < fifteen_min_in_future)
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

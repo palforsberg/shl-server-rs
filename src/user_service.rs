@@ -34,9 +34,15 @@ impl UserService {
         // parallel stores?
         let user = db.read(&request.id);
 
+        let teams: Vec<String> = request.teams.into_iter().map(|e| {
+            match e.as_str() {
+                "HERR" => "NVIF".to_string(),
+                _ => e.to_string(),
+            }
+        }).collect();
         let updated_user = match user {
             Some(mut user) => {
-                user.teams = request.teams;
+                user.teams = teams;
                 user.apn_token = request.apn_token;
                 user.ios_version = request.ios_version;
                 user.app_version = request.app_version;
@@ -45,7 +51,7 @@ impl UserService {
             None => {
                 User {
                     id: request.id,
-                    teams: request.teams,
+                    teams,
                     apn_token: request.apn_token,
                     ios_version: request.ios_version,
                     app_version: request.app_version,

@@ -1,6 +1,6 @@
 use std::{time::Duration, str::FromStr, fmt::Display};
 
-use crate::{db::Db, rest_client::{self}, models_external::{event::{PlayByPlayType, Penalty, Shot, Goal}, self}, models::ParseStringError, models_api::event::*};
+use crate::{db::Db, rest_client::{self}, models_external::{event::{PlayByPlayType, Penalty, Shot, Goal, LiveEvent, EventType, PeriodType}, self}, models::{ParseStringError, Season, StringOrNum}, models_api::event::*};
 
 
 impl FromStr for Player {
@@ -28,7 +28,6 @@ impl GoalInfo {
             team: a.team.clone(),
             player: a.extra.scorerLong.parse().ok(),
             team_advantage: a.extra.teamAdvantage.clone(),
-            assist: Some(a.extra.assist.clone()),
             home_team_result: a.extra.homeForward.to_num(),
             away_team_result: a.extra.homeAgainst.to_num(),
             location: Location { x: a.location.x, y: a.location.y }
@@ -112,10 +111,68 @@ impl models_external::event::PlayByPlay {
     }
 }
 
+
+fn add_period_events(raw_events: Vec<LiveEvent>) -> Vec<LiveEvent> {
+    if raw_events.is_empty() {
+        return raw_events
+    }
+
+    let mut result: Vec<LiveEvent> = Vec::new();
+    let mut last_period = None;
+    for e in raw_events.iter() {
+        if last_period.is_none() {
+            last_period = Some(e.period.to_num());
+        }
+        if !matches!(e.get_event_type(), EventType::Goal(_) | EventType::Penalty(_)) {
+            continue;
+        }
+        if e.period.to_num() != last_period.unwrap() {
+            result.push(LiveEvent { 
+                gameUuid: e.gameUuid.to_string(), 
+                eventId: Some(e.period.clone()), 
+                period: StringOrNum::Number(last_period.unwrap()), 
+                eventType: Some(EventType::Period(PeriodType { started: true, finished: false})) 
+            });
+            last_period = Some(e.period.to_num());
+        }
+        result.push(e.clone());
+    }
+
+     result.push(LiveEvent { 
+        gameUuid: raw_events.first().map(|e| e.gameUuid.clone()).unwrap_or("game_uuid".to_string()), 
+        eventId: Some(StringOrNum::Number(666)), 
+        period: StringOrNum::Number(1), 
+        eventType: Some(EventType::Period(PeriodType { started: true, finished: false})) 
+    });
+    result
+}
+
 pub struct EventService;
 impl EventService {
  
-    pub async fn update(game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
+    pub async fn update(season: &Season, game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
+        match season {
+            Season::Season2023 => EventService::update_2023_season(game_uuid, throttle_s).await,
+            _ => EventService::update_older_season(game_uuid, throttle_s).await,
+        }
+    }
+
+    async fn update_2023_season(game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
+        let db_raw: Db<String, Vec<LiveEvent>> = Db::new("v2_events_raw_2023");
+
+        let raw_events = if !db_raw.is_stale(&game_uuid.to_string(), throttle_s) {
+            db_raw.read(&game_uuid.to_string()).unwrap_or_default()
+        } else {
+            let raw_events = rest_client::get_events_2023(game_uuid).await.unwrap_or_default();
+            let result = add_period_events(raw_events);
+            _ = db_raw.write(&game_uuid.to_string(), &result);
+            result
+        };
+
+        Some(raw_events.into_iter().map(|e| e.into()).rev().collect())
+    }
+
+    async fn update_older_season(game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
         let db_raw: Db<String, Vec<models_external::event::PlayByPlay>> = Db::new("v2_events_raw");
 
         let raw_events = if !db_raw.is_stale(&game_uuid.to_string(), throttle_s) {
@@ -129,7 +186,23 @@ impl EventService {
         Some(raw_events.into_iter().map(|e| e.into_mapped_event(game_uuid)).collect())
     }
 
-    pub fn store_raw(game_uuid: &str, event: &models_external::event::PlayByPlay) -> bool {
+
+    pub fn store_raw(game_uuid: &str, event: &LiveEvent) -> bool {
+        let db = Db::<String, Vec<LiveEvent>>::new("v2_events_raw_2023");
+        let mut events = db.read(&game_uuid.to_string()).unwrap_or_default();
+        let new_event;
+        if let Some(pos) = events.iter().position(|e| e.get_event_id() == event.get_event_id()) {
+            events[pos] = event.clone();
+            new_event = false;
+        } else {
+            events.push(event.clone());
+            new_event = true;
+        }
+        _ = db.write(&game_uuid.to_string(), &events);
+        new_event
+    }
+
+    pub fn store_older_raw(game_uuid: &str, event: &models_external::event::PlayByPlay) -> bool {
         let db = Db::<String, Vec<models_external::event::PlayByPlay>>::new("v2_events_raw");
         let mut events = db.read(&game_uuid.to_string()).unwrap_or_default();
         let new_event;
@@ -145,18 +218,18 @@ impl EventService {
     }
 
     pub fn read(game_uuid: &str) -> Vec<ApiGameEvent> {
-        let db = Db::<String, Vec<models_external::event::PlayByPlay>>::new("v2_events_raw");
+        let db = Db::<String, Vec<models_external::event::LiveEvent>>::new("v2_events_raw_2023");
         db.read(&game_uuid.to_string()).unwrap_or_default()
-            .into_iter().map(|e| e.into_mapped_event(game_uuid))
+            .into_iter().map(|e| e.into())
             .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::models_external::event::Penalty;
+    use crate::{models_external::event::{Penalty, LiveEvent, EventType, ShotType, EventTeam}, models::StringOrNum};
 
-    use super::{Player, PenaltyInfo};
+    use super::{Player, PenaltyInfo, add_period_events};
 
     #[test]
     fn parse_player() {
@@ -192,4 +265,39 @@ mod tests {
         assert_eq!(info.player, None);
         assert_eq!(info.team, "LHF");
     }
+
+    #[test]
+    fn test_add_period_events() {
+        let events = vec![get_event(99), get_event(99), get_event(4), get_event(4), get_event(3), get_event(1)];
+        let result = add_period_events(events);
+        assert_eq!(result.len(), 6 + 4);
+
+        let p1 = result[2].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 99);
+
+        let p1 = result[5].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 4);
+
+
+        let p1 = result[7].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 3);
+
+        let p1 = result[9].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 1);
+    }
+
+    fn get_event(period: i16) -> LiveEvent {
+        LiveEvent { gameUuid: "u".to_string(), eventId: Some(StringOrNum::Number(1)), period: StringOrNum::Number(period), eventType: Some(EventType::Goal(ShotType { 
+            time: "00:00".to_string(), gameState: "Ongoing".to_string(), goalStatus: None, 
+            homeTeam: crate::models_external::event::LiveEventTeam { teamId: "SAIK".to_string(), score: StringOrNum::Number(1) }, 
+            awayTeam: crate::models_external::event::LiveEventTeam { teamId: "SAIK".to_string(), score: StringOrNum::Number(1) }, 
+            eventTeam: EventTeam { teamId: "SAIK".to_string() }, 
+            revision: 1, 
+            player: crate::models_external::event::EventPlayer { playerId: StringOrNum::Number(1), familyName: "Ole".to_string(), firstName: "ole".to_string(), jerseyToday: StringOrNum::Number(1) } 
+        }))}
+    } 
 }

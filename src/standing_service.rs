@@ -14,7 +14,6 @@ impl Display for StandingKey {
     }
 }
 
-
 impl Standing {
     fn add_game(&mut self, g: &ApiGame) {
         if g.played {
@@ -104,7 +103,11 @@ impl StandingService {
             } else if a.gp == 0 || b.gp == 0 {
                 b.gp.partial_cmp(&a.gp).unwrap()
             } else if a.points == b.points {
-                b.diff.partial_cmp(&a.diff).unwrap()
+                if a.diff == b.diff {
+                    a.team_code.partial_cmp(&b.team_code).unwrap()
+                } else {
+                    b.diff.partial_cmp(&a.diff).unwrap()
+                }
             } else {
                 b.points.partial_cmp(&a.points).unwrap() 
             }

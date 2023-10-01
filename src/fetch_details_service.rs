@@ -28,7 +28,7 @@ impl FetchDetailsService {
             futures::join!(
                 StatsService::update(&e.league, &e.game_uuid, Some(Duration::from_secs(0))),
                 PlayerService::update(&e.league, &e.game_uuid, Some(Duration::from_secs(0))),
-                EventService::update(&e.game_uuid, Some(Duration::from_secs(0)))
+                EventService::update(&e.season, &e.game_uuid, Some(Duration::from_secs(0)))
             );
             
             tokio::time::sleep(Duration::from_secs(1)).await;

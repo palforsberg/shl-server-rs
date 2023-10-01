@@ -1,4 +1,6 @@
-use chrono::{DateTime, Utc};
+use std::fmt::Display;
+
+use chrono::{DateTime, Utc, Duration};
 use serde::{Serialize, Deserialize};
 
 use crate::models::{GameType, League, Season};
@@ -26,4 +28,16 @@ pub struct ApiGame {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub votes: Option<ApiVotePerGame>,
+}
+
+impl Display for ApiGame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} - {} {} :: {:#?}", self.home_team_code, self.home_team_result, self.away_team_result, self.away_team_code, self.status)
+    }
+}
+impl ApiGame {
+    pub fn is_potentially_live(&self) -> bool {
+        let fifteen_min_in_future = Utc::now() + Duration::minutes(5);
+        self.status != GameStatus::Finished && (self.start_date_time < fifteen_min_in_future)
+    }
 }

@@ -33,7 +33,9 @@ pub struct GameKey(Season, League, GameType);
 pub struct AppState {
     pub sender: Sender<SseEvent>,
     pub notifications: Vec<(String, ApnBody)>,
-    pub live_acitivies: HashMap<String, u16>,
+    pub nr_live_activities: HashMap<String, u16>,
+    pub store_live_activities: bool,
+    pub live_activities: Vec<(String, ApnBody)>,
     pub stat_calls: HashMap<String, u16>,
     pub added_games: HashMap<GameKey, Vec<SeasonGame>>,
 }
@@ -46,6 +48,21 @@ struct SportsQuery {
     gameTypeUuid: String,
 }
 
+#[derive(Deserialize)]
+struct GameUuidQuery {
+    pub gameUuid: String
+}
+
+pub fn get_game_uuid(event: &SseEvent) -> String {
+    if let Some(a) = &event.gameReport { a.gameUuid.to_string() }
+    else if let Some(a) = &event.playByPlay { a.gameUuid.to_string() }
+    else if let Some(a) = &event.liveEvent { a.gameUuid.to_string() }
+    else if let Some(a) = &event.gameTime { a.gameUuid.to_string() }
+    else if let Some(a) = &event.teamStatistics { a.gameUuid.to_string() }
+    else if let Some(a) = &event.liveState { a.gameUuid.to_string() }
+    else { "idk".to_string() }
+}
+
 impl ExternalServer {
     pub fn new(port: u16) -> ExternalServer {
 
@@ -55,9 +72,11 @@ impl ExternalServer {
         let api_state = Arc::new(RwLock::new(AppState { 
             sender: sse_sender, 
             notifications: vec![], 
-            live_acitivies: HashMap::new(),
+            nr_live_activities: HashMap::new(),
             stat_calls: HashMap::new(),
-            added_games: HashMap::new()
+            added_games: HashMap::new(),
+            live_activities: vec![],
+            store_live_activities: false,
         }));
 
         ExternalServer {
@@ -103,7 +122,7 @@ impl ExternalServer {
             .route("/gameday/boxscore/:game_uuid", get(ExternalServer::get_boxscore_file))
             .route("/gameday/periodstats/:game_uuid", get(ExternalServer::get_periodstats_file))
             .route("/sports/game-info", get(ExternalServer::get_sports_file))
-            .route("/gameday/live/game/SHL/:game_uuid", get(ExternalServer::get_sse))
+            .route("/gameday/live/game/SHL", get(ExternalServer::get_sse))
             .route("/apn/push/3/device/:device_token", post(ExternalServer::post_apn))
             .with_state(state);
     
@@ -129,20 +148,25 @@ impl ExternalServer {
         
         if apn_body.aps.content_state.is_some() {
             let mut safe_state = state.write().await;
-            let val = safe_state.live_acitivies.entry(device_token).or_insert_with(|| 0);
+            let val = safe_state.nr_live_activities.entry(device_token.clone()).or_insert_with(|| 0);
             *val += 1;
+
+            if safe_state.store_live_activities {
+                safe_state.live_activities.push(( device_token, apn_body ));
+            }
         } else {
             state.write().await.notifications.push((device_token, apn_body));
         }
     }
 
     async fn get_sports_file(query: Query<SportsQuery>, State(state): State<Arc<RwLock<AppState>>>) -> impl IntoResponse {
-        let path = format!("./tests/integration/external/sports/game-info?gamePlace=all&played=all&seasonUuid={}&seriesUuid={}&gameTypeUuid={}", query.seasonUuid, query.seriesUuid, query.gameTypeUuid);
+        // let path = format!("./tests/integration/external/sports/game-info?gamePlace=all&played=all&seasonUuid={}&seriesUuid={}&gameTypeUuid={}", query.seasonUuid, query.seriesUuid, query.gameTypeUuid);
 
         let league = ExternalServer::parse_series_uuid(&query.seriesUuid).expect("[TEST] invalid league id");
         let game_type = ExternalServer::parse_game_type_uuid(&query.gameTypeUuid).expect("[TEST] invalid game type id");
         let season = ExternalServer::parse_season_uuid(&query.seasonUuid).expect("[TEST] invalid season id");
-        let mut data = std::fs::read_to_string(path).ok().and_then(|e| serde_json::from_str::<SeasonRsp>(&e).ok()).unwrap();
+        // let mut data = std::fs::read_to_string(path).ok().and_then(|e| serde_json::from_str::<SeasonRsp>(&e).ok()).unwrap();
+        let mut data = SeasonRsp { gameInfo: vec![], teamList: vec![] };
         let safe_state = state.read().await;
         if let Some(games_to_add) = safe_state.added_games.get(&GameKey(season, league, game_type)) {
             data.gameInfo.extend(games_to_add.clone());
@@ -150,18 +174,15 @@ impl ExternalServer {
         Json(data)
     }
     
-    async fn get_sse(Path(game_uuid): Path<String>, State(state): State<Arc<RwLock<AppState>>>) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
+    async fn get_sse(query: Query<GameUuidQuery>, State(state): State<Arc<RwLock<AppState>>>) -> Sse<impl futures::Stream<Item = Result<Event, Infallible>>> {
         let mut receiver = state.write().await.sender.subscribe();
+        let game_uuid = query.gameUuid.clone();
         println!("[TEST] New SSE subscriber for {}", game_uuid);
         Sse::new(try_stream! {
             loop {
                 match receiver.recv().await {
                     Ok(msg) => {
-                        let msg_game_uuid = match (msg.gameReport.as_ref(), msg.playByPlay.as_ref()) {
-                            (Some(e), _) => e.gameUuid.clone(),
-                            (_, Some(e)) => e.gameUuid.clone(),
-                            _ => panic!(),
-                        };
+                        let msg_game_uuid = get_game_uuid(&msg);
                         if msg_game_uuid == game_uuid { // is the game_uuid of the message is the same as the game_uuid in the URL
                             let json_str = serde_json::to_string(&msg).expect("should encode to json");
                             yield Event::default().data(json_str);

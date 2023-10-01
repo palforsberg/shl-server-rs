@@ -7,7 +7,7 @@ use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing::{log, Span};
 
-use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, ApiVotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}}};
+use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, ApiVotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}}, status_service::StatusService};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -56,6 +56,8 @@ impl Api {
 
 
             .route("/v2/ws", get(Api::ws_handler))
+
+            .route("/v2/status", get(Api::get_status))
     
             .route("/", get(Api::root))
             .with_state(state)
@@ -225,6 +227,10 @@ impl Api {
         State(state): State<ApiState>) -> impl IntoResponse {
         ws.on_upgrade(|socket| ApiWs::handle(socket, state))
     } 
+
+    async fn get_status() -> impl IntoResponse {
+        StatusService::read_raw().into_response()
+    }
 }
 
 

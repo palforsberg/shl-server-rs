@@ -27,7 +27,7 @@ impl ApiGameDetailsService {
 
         let game = game.as_ref()?;
         let (events, stats, players) = futures::join!(
-            EventService::update(game_uuid, None),
+            EventService::update(&game.season, game_uuid, None),
             StatsService::update(&game.league, game_uuid, None),
             PlayerService::update(&game.league, game_uuid, None),
         );

@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::log;
+use crate::models_external::event::LiveEvent;
 use crate::{LogResult, CONFIG};
 use crate::db::Db;
 use crate::models::{League, GameType, Season, SeasonKey};
@@ -52,6 +53,11 @@ pub fn get_season_url(key: &SeasonKey) -> String {
 
 pub async fn get_events(game_uuid: &str) -> Option<Vec<crate::models_external::event::PlayByPlay>> {
     let url = format!("{}/gameday/play-by-play/initial-events/{game_uuid}", CONFIG.get_url(&League::SHL));
+    get_call(&url).await
+}
+
+pub async fn get_events_2023(game_uuid: &str) -> Option<Vec<LiveEvent>> {
+    let url = format!("{}/gameday/play-by-play/{game_uuid}", CONFIG.get_url(&League::SHL));
     get_call(&url).await
 }
 

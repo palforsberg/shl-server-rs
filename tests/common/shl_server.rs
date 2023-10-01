@@ -1,6 +1,7 @@
 use std::process::{Command, Child};
 
 use assert_cmd::prelude::CommandCargoExt;
+use predicates::{function::FnPredicate, Predicate};
 use reqwest::Response;
 use shl_server_rs::{models::Season, models_api::{game::ApiGame, user::AddUser, report::GameStatus, game_details::ApiGameDetails, standings::Standings, live_activity::StartLiveActivity, vote::VoteBody}, config_handler::Config};
 
@@ -37,7 +38,9 @@ impl ShlServer {
             apn_topic: "com.integration.test".to_string(),
 
             db_path: format!("{}/db", path),
-            api_key: "API_KEY".to_string()
+            api_key: "API_KEY".to_string(),
+            sse_sleep: 0,
+            sse_file_append: false,
         };
 
         let config_str = serde_json::to_string(&config).unwrap();
@@ -68,14 +71,26 @@ impl ShlServer {
     }
 
     pub async fn retry_until_game_reaches(&self, game_uuid: &str, expected_status: &GameStatus, retry_ms: u64) -> ApiGameDetails {
+        let predicate = predicates::function::function(|e: &ApiGameDetails| &e.game.status == expected_status);
+        self.retry_until(game_uuid, predicate, retry_ms).await
+    }
+
+    pub async fn retry_until<F>(&self, game_uuid: &str, predicate: FnPredicate<F, ApiGameDetails>, retry_ms: u64) -> ApiGameDetails 
+    where
+        F: Fn(&ApiGameDetails) -> bool,
+    {
+        let mut nr_loops = 0;
         loop {
-            let details = self.get_api_game_details(game_uuid).await;
-            let status = details.as_ref().map(|e| e.game.status.clone()).unwrap();
-            if &status == expected_status {
-                return details.unwrap();
+            if let Ok(details) = self.get_api_game_details(game_uuid).await {
+                if predicate.eval(&details) {
+                    return details;
+                }
             }
-            println!("[TEST] {:?} != {:?}", expected_status, status);
             tokio::time::sleep(std::time::Duration::from_millis(retry_ms)).await;
+            nr_loops += 1;
+            if nr_loops > 50 {
+                panic!("retry failed");
+            }
         }
     }
 

@@ -116,7 +116,11 @@ impl LiveActivityEvent {
             ApiEventType::PeriodStart => {
                 let title = match event.status {
                     GameStatus::Period1 => "Period 1",
-                    _ => "Period 1"
+                    GameStatus::Period2 => "Period 2",
+                    GameStatus::Period3 => "Period 3",
+                    GameStatus::Overtime => "Övertid",
+                    GameStatus::Shootout => "Straffar",
+                    _ => "",
                 }.to_string();
                 LiveActivityEvent { title, body: None, team_code: None }
             }

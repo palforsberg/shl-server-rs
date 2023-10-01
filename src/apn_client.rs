@@ -86,8 +86,13 @@ impl ApnClient {
             } 
         };
         log::error!("[APN] Failed notifying {} {:?}", device_token, body.reason);
-        if body.reason == Some("BadDeviceToken".to_string()) {
-            Err(ApnError::BadDeviceToken)
+
+        if let Some(str) = body.reason {
+            match str.as_str() {
+                "BadDeviceToken" => Err(ApnError::BadDeviceToken),
+                // "Unregistered" => Err(ApnError::BadDeviceToken),
+                _ => Err(ApnError::Other)
+            }
         } else {
             Err(ApnError::Other)
         }
