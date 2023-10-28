@@ -1,8 +1,7 @@
-use std::{time::Instant, cmp::Ordering};
+use std::cmp::Ordering;
 
-use tracing::log;
 
-use crate::{game_report_service::GameReportService, models_api::{report::{ApiGameReport, GameStatus}, event::{ApiGameEvent, ApiEventType, GameEndInfo}}};
+use crate::models_api::{report::{ApiGameReport, GameStatus}, event::{ApiGameEvent, ApiEventType, GameEndInfo}};
 
 impl ApiGameReport {
     fn get_winner(&self) -> Option<String> {
@@ -15,22 +14,13 @@ impl ApiGameReport {
 }
 
 pub struct ReportStateMachine {
-    last: Option<GameStatus>,
 }
 
 impl ReportStateMachine {
-    pub fn new() -> ReportStateMachine {
-        ReportStateMachine {
-            last: None,
-        }
-    }
-
-    pub fn process(&mut self, report: &ApiGameReport) -> Option<ApiGameEvent> {
-        let last_status = self.last
-            .clone()
-            .unwrap_or_else(|| ReportStateMachine::get_initial_status(&report.game_uuid).unwrap_or(GameStatus::Coming));
-
-        let result = if last_status == GameStatus::Coming && report.status == GameStatus::Period1 {
+    pub fn process(report: &ApiGameReport, old_report: &ApiGameReport) -> Option<ApiGameEvent> {
+        let last_status = old_report.status.clone();
+        
+        if last_status == GameStatus::Coming && report.status == GameStatus::Period1 {
             Some(ApiGameEvent { 
                 game_uuid: report.game_uuid.clone(),
                 event_id: "GameStarted".to_string(),
@@ -52,16 +42,6 @@ impl ReportStateMachine {
             })
         } else {
             None
-        };
-        self.last = Some(report.status.clone());
-        result
+        }
     }
-
-    fn get_initial_status(game_uuid: &str) -> Option<GameStatus> {
-        let before = Instant::now();
-        let res = GameReportService::read(game_uuid)
-            .map(|e| e.status);
-        log::info!("[RSM] Get initial status {:?} {game_uuid} {:.2?}", res, before.elapsed());
-        res
-    } 
 }

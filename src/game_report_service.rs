@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{db::Db, models_external, models_api::report::ApiGameReport};
+use crate::{db::Db, models_external, models_api::report::ApiGameReport, msg_bus::UpdateReport};
 
 impl Display for ApiGameReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -27,6 +27,18 @@ impl From<models_external::event::GameReport> for ApiGameReport {
             away_team_result: value.awayTeamScore.to_num(),
             overtime: None,
             shootout: None,
+        }
+    }
+}
+
+impl From<models_external::event::GameReport> for UpdateReport {
+    fn from(value: models_external::event::GameReport) -> Self {
+        UpdateReport {
+            gametime: Some(value.gameTime.clone()),
+            status: Some(value.get_status()),
+            home_team_result: Some(value.homeTeamScore.to_num()),
+            away_team_result: Some(value.awayTeamScore.to_num()),
+            ..Default::default()
         }
     }
 }

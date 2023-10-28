@@ -11,7 +11,6 @@ use crate::models::{League, GameType, Season, SeasonKey};
 pub trait IdentifiableEnum {
     fn get_uuid(&self) -> &str;
 }
-
 impl IdentifiableEnum for League {
     fn get_uuid(&self) -> &str {
         match self {

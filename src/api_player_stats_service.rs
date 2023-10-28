@@ -81,6 +81,7 @@ impl ApiPlayerStatsService {
                     first_name: e.first_name.clone(),
                     family_name: e.family_name.clone(),
                     jersey: e.jersey,
+                    league: e.league,
                     stats: match e.stats {
                         ApiAthleteStats::Player(_) => ApiAthleteStats::Player(ApiPlayerStats { ..Default::default() }),
                         ApiAthleteStats::Goalkeeper(_) => ApiAthleteStats::Goalkeeper(ApiGoalkeeperStats { ..Default::default() }),
@@ -105,6 +106,19 @@ impl ApiPlayerStatsService {
             _ = teams_db.write(id, p);
         }
 
+        let season_player_map = player_map.iter().fold(HashMap::new(), |mut map, player_entry| {
+            let key = player_entry.0.1.clone();
+            map
+                .entry(key)
+                .or_insert_with(Vec::new)
+                .push(player_entry.1.clone());
+            map
+        });
+        let season_db = ApiPlayerStatsService::get_season_player_db();
+        for (id, p) in &season_player_map {
+            _ = season_db.write(id, p);
+        }
+
         let player_career_map = player_map.iter().fold(HashMap::new(), |mut map, player_entry| {
             let key = player_entry.0.0;
             map
@@ -127,6 +141,10 @@ impl ApiPlayerStatsService {
 
     pub fn get_team_player_db() -> Db<TeamSeasonKey, Vec<ApiAthlete>> {
         Db::<TeamSeasonKey, Vec<ApiAthlete>>::new("v2_api_team_players")
+    }
+
+    pub fn get_season_player_db() -> Db<Season, Vec<ApiAthlete>> {
+        Db::<Season, Vec<ApiAthlete>>::new("v2_api_season_players")
     }
 }
 

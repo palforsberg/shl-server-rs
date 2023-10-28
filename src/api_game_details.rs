@@ -1,4 +1,4 @@
-use std::{time::Instant, sync::Arc};
+use std::{time::{Instant, Duration}, sync::Arc};
 
 use tokio::sync::RwLock;
 use tracing::log;
@@ -17,7 +17,7 @@ impl ApiGameDetailsService {
     ) -> ApiGameDetailsService {
         ApiGameDetailsService { api_season_service }
     }
-    pub async fn read(&self, game_uuid: &str) -> Option<ApiGameDetails> {
+    pub async fn read(&self, game_uuid: &str, throttle_s: Option<Duration>) -> Option<ApiGameDetails> {
         let before = Instant::now();
         let game = self.api_season_service.read().await.read_game(game_uuid);
 
@@ -27,11 +27,10 @@ impl ApiGameDetailsService {
 
         let game = game.as_ref()?;
         let (events, stats, players) = futures::join!(
-            EventService::update(&game.season, game_uuid, None),
-            StatsService::update(&game.league, game_uuid, None),
-            PlayerService::update(&game.league, game_uuid, None),
+            EventService::update(&game.season, game_uuid, throttle_s),
+            StatsService::update(&game.league, game_uuid, throttle_s),
+            PlayerService::update(&game.league, game_uuid, throttle_s),
         );
-
         
         let res = Some(ApiGameDetails {
             game: game.clone(),

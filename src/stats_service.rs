@@ -40,9 +40,9 @@ impl StatsService {
         rsp.map(|e| e.into())
     }
 
-    pub fn is_stale(league: &League, game_uuid: &str) -> bool {
+    pub fn is_stale(league: &League, game_uuid: &str, throttle_s: Option<Duration>) -> bool {
         let url = rest_client::get_stats_url(league, game_uuid);
         let db = Db::<String, StatsRsp>::new("rest");
-        db.is_stale(&url, None)
+        db.is_stale(&url, throttle_s)
     }
 }

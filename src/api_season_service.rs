@@ -153,7 +153,7 @@ mod tests {
     use chrono::{Utc, Duration};
     use tempdir::TempDir;
 
-    use crate::{models::{Season, SeasonKey, StringOrNum::Number}, models_external::season::{SeasonRsp, SeasonGame, GameTeamInfo, SeriesInfo, TeamNames}, models_api::report::GameStatus, game_report_service::GameReportService};
+    use crate::{models::{Season, SeasonKey, StringOrNum::Number}, models_external::season::{SeasonRsp, SeasonGame, GameTeamInfo, SeriesInfo, TeamNames}, models_api::report::{GameStatus, ApiGameReport}, game_report_service::GameReportService};
 
     use super::ApiSeasonService;
 
@@ -245,6 +245,34 @@ mod tests {
         assert_eq!(api_game.away_team_result, 0);
         assert!(!api_game.overtime);
         assert!(!api_game.shootout);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_report_is_used_in_mem() -> Result<(), ()> {
+        std::env::set_var("DB_PATH", TempDir::new("test").expect("dir to be created").path().to_str().unwrap());
+        let service = ApiSeasonService::new();
+
+        let report = crate::models_api::report::ApiGameReport { game_uuid: "uuid".to_string(), gametime: "13:37".to_string(), status: GameStatus::Period1, home_team_code: "LHF".to_string(), away_team_code: "SAIK".to_string(), home_team_result: 1, away_team_result: 1, overtime: Some(true), shootout: Some(true) };
+        GameReportService::store("uuid", &report);
+
+        let season_key = SeasonKey(Season::Season2023, crate::models::League::SHL, crate::models::GameType::Season);
+        let season_game = SeasonGame { 
+            uuid: "uuid".to_string(), 
+            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() } },
+            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() } },
+            startDateTime: Utc::now() - Duration::minutes(10), 
+            state: "post-game".to_string(), 
+            shootout: false, 
+            overtime: false, 
+            seriesInfo: SeriesInfo { code: crate::models::League::SHL },
+        };
+        service.write().await.update(&crate::models::Season::Season2023, &[(season_key, SeasonRsp { gameInfo: vec![season_game], teamList: vec![] })], HashMap::new());
+
+        service.write().await.update_from_report(&ApiGameReport { game_uuid: "uuid".to_string(), gametime: "13:37".to_string(), status: GameStatus::Period2, home_team_code: "SAIK".to_string(), away_team_code: "LHF".to_string(), home_team_result: 1, away_team_result: 1, overtime: None, shootout: None });
+        let all_games = service.read().await.read_current_season();
+        let updated = all_games.get(0).unwrap();
+        assert_eq!(updated.status, GameStatus::Period2);
         Ok(())
     }
 }

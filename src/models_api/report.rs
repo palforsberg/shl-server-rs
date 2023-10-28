@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 
 use serde::{Serialize, Deserialize};
 
+use super::game::ApiGame;
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum GameStatus {
     Coming,
@@ -46,17 +48,33 @@ impl GameStatus {
     }
 }
 impl ApiGameReport {
-    pub fn is_valid_update(&self, older: &Option<ApiGameReport>) -> bool {
-        if let Some(older) = older {
-            if older.status == self.status {
-                self.gametime.cmp(&older.gametime) != Ordering::Equal ||
-                self.home_team_result > older.home_team_result || 
-                self.away_team_result > older.away_team_result
-            } else {
-                older.status.get_valid_steps().contains(&self.status)
-            }            
+    pub fn is_valid_update(&self, older: &ApiGameReport) -> bool {
+        if older.status == GameStatus::Intermission && self.status == GameStatus::Intermission {
+            self.home_team_result > older.home_team_result || 
+            self.away_team_result > older.away_team_result ||
+            self.overtime != older.overtime ||
+            self.shootout != older.shootout
+        } else if older.status == self.status {
+            self.gametime.cmp(&older.gametime) != Ordering::Equal ||
+            self.home_team_result > older.home_team_result || 
+            self.away_team_result > older.away_team_result ||
+            self.overtime != older.overtime ||
+            self.shootout != older.shootout
         } else {
-            true
+            older.status.get_valid_steps().contains(&self.status)
+        }            
+    }
+
+    pub fn default_from(game: ApiGame) -> ApiGameReport {
+        ApiGameReport { game_uuid: game.game_uuid, 
+            gametime: game.gametime.unwrap_or_else(|| "00:00".to_string()), 
+            status: game.status, 
+            home_team_code: game.home_team_code, 
+            away_team_code: game.away_team_code, 
+            home_team_result: game.home_team_result, 
+            away_team_result: game.away_team_result, 
+            overtime: Some(game.overtime), 
+            shootout: Some(game.shootout)
         }
     }
 }
@@ -79,39 +97,42 @@ mod tests {
 
     #[test]
     fn test_is_valid_update() {
-        assert!(report("00:00", GameStatus::Coming, 0, 0).is_valid_update(&None));
-        assert!(report("00:00", GameStatus::Period1, 0, 0).is_valid_update(&Some(report("00:00", GameStatus::Coming, 0, 0))));
+        assert!(report("00:00", GameStatus::Period1, 0, 0).is_valid_update(&report("00:00", GameStatus::Coming, 0, 0)));
 
-        assert!(report("00:15", GameStatus::Period1, 0, 0).is_valid_update(&Some(report("00:00", GameStatus::Period1, 0, 0))));
+        assert!(report("00:15", GameStatus::Period1, 0, 0).is_valid_update(&report("00:00", GameStatus::Period1, 0, 0)));
 
-        assert!(report("00:15", GameStatus::Period1, 1, 0).is_valid_update(&Some(report("00:15", GameStatus::Period1, 0, 0))));
-        assert!(report("00:40", GameStatus::Period1, 1, 0).is_valid_update(&Some(report("00:15", GameStatus::Period1, 1, 0))));
-        assert!(report("01:00", GameStatus::Period1, 1, 0).is_valid_update(&Some(report("00:40", GameStatus::Period1, 1, 0))));
-        assert!(report("01:00", GameStatus::Period1, 2, 0).is_valid_update(&Some(report("01:00", GameStatus::Period1, 1, 0))));
+        assert!(report("00:15", GameStatus::Period1, 1, 0).is_valid_update(&report("00:15", GameStatus::Period1, 0, 0)));
+        assert!(report("00:40", GameStatus::Period1, 1, 0).is_valid_update(&report("00:15", GameStatus::Period1, 1, 0)));
+        assert!(report("01:00", GameStatus::Period1, 1, 0).is_valid_update(&report("00:40", GameStatus::Period1, 1, 0)));
+        assert!(report("01:00", GameStatus::Period1, 2, 0).is_valid_update(&report("01:00", GameStatus::Period1, 1, 0)));
 
-        assert!(report("00:00", GameStatus::Intermission, 1, 0).is_valid_update(&Some(report("00:00", GameStatus::Period1, 1, 0))));
+        assert!(report("00:00", GameStatus::Intermission, 1, 0).is_valid_update(&report("00:00", GameStatus::Period1, 1, 0)));
 
-        assert!(report("20:00", GameStatus::Period2, 1, 0).is_valid_update(&Some(report("00:00", GameStatus::Intermission, 1, 0))));
+        assert!(report("20:00", GameStatus::Period2, 1, 0).is_valid_update(&report("00:00", GameStatus::Intermission, 1, 0)));
 
-        assert!(report("00:00", GameStatus::Intermission, 1, 0).is_valid_update(&Some(report("00:00", GameStatus::Period2, 1, 0))));
+        assert!(report("00:00", GameStatus::Intermission, 1, 0).is_valid_update(&report("00:00", GameStatus::Period2, 1, 0)));
 
-        assert!(report("00:00", GameStatus::Finished, 1, 0).is_valid_update(&Some(report("00:00", GameStatus::Period3, 1, 0))));
+        assert!(report("00:00", GameStatus::Finished, 1, 0).is_valid_update(&report("00:00", GameStatus::Period3, 1, 0)));
+
+        assert!(report("01:00", GameStatus::Period1, 2, 0).is_valid_update(&report("01:23", GameStatus::Period1, 0, 0)));
     }
 
 
     #[test]
     fn test_is_invalid_update() {
-        assert!(!report("00:00", GameStatus::Coming, 0, 0).is_valid_update(&Some(report("00:00", GameStatus::Period1, 0, 0))));
+        assert!(!report("00:00", GameStatus::Coming, 0, 0).is_valid_update(&report("00:00", GameStatus::Period1, 0, 0)));
 
-        // assert!(!report("00:00", GameStatus::Period1, 0, 0).is_valid_update(&Some(report("00:15", GameStatus::Period1, 0, 0))));
+        // assert!(!report("00:00", GameStatus::Period1, 0, 0).is_valid_update(&report("00:15", GameStatus::Period1, 0, 0)));
 
-        assert!(!report("00:15", GameStatus::Period1, 0, 0).is_valid_update(&Some(report("00:15", GameStatus::Period1, 1, 0))));
-        assert!(!report("00:15", GameStatus::Period1, 1, 0).is_valid_update(&Some(report("00:15", GameStatus::Period1, 1, 0))));
-        // assert!(!report("00:15", GameStatus::Period1, 1, 0).is_valid_update(&Some(report("00:40", GameStatus::Period1, 1, 0))));
-        // assert!(!report("00:40", GameStatus::Period1, 1, 0).is_valid_update(&Some(report("01:00", GameStatus::Period1, 1, 0))));
-        assert!(!report("01:00", GameStatus::Period1, 0, 0).is_valid_update(&Some(report("01:00", GameStatus::Period1, 1, 0))));
+        assert!(!report("00:15", GameStatus::Period1, 0, 0).is_valid_update(&report("00:15", GameStatus::Period1, 1, 0)));
+        assert!(!report("00:15", GameStatus::Period1, 1, 0).is_valid_update(&report("00:15", GameStatus::Period1, 1, 0)));
+        // assert!(!report("00:15", GameStatus::Period1, 1, 0).is_valid_update(&report("00:40", GameStatus::Period1, 1, 0)));
+        // assert!(!report("00:40", GameStatus::Period1, 1, 0).is_valid_update(&report("01:00", GameStatus::Period1, 1, 0)));
+        assert!(!report("01:00", GameStatus::Period1, 0, 0).is_valid_update(&report("01:00", GameStatus::Period1, 1, 0)));
 
-        assert!(!report("00:00", GameStatus::Period3, 1, 0).is_valid_update(&Some(report("00:00", GameStatus::Finished, 1, 0))));
+        assert!(!report("00:00", GameStatus::Period3, 1, 0).is_valid_update(&report("00:00", GameStatus::Finished, 1, 0)));
+
+        assert!(!report("00:00", GameStatus::Intermission, 1, 0).is_valid_update(&report("00:01", GameStatus::Intermission, 1, 0)));
     }
 
     fn report(gametime: &str, status: GameStatus, home_team_result: i16, away_team_result: i16) -> ApiGameReport {

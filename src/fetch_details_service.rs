@@ -3,7 +3,18 @@ use std::time::Duration;
 
 use tracing::log;
 
-use crate::{stats_service::StatsService, api_season_service::ApiSeasonService, player_service::PlayerService, event_service::EventService, db::Db, models_api::game::ApiGame};
+use crate::{stats_service::StatsService, api_season_service::ApiSeasonService, player_service::PlayerService, event_service::EventService, db::Db, models_api::game::ApiGame, models::Season};
+
+
+impl From<Season> for Duration {
+    fn from(value: Season) -> Self {
+        if value.is_current() {
+            Duration::from_secs(60 * 60 * 24 * 10)
+        } else {
+            Duration::from_secs(0)
+        }
+    }
+}
 
 pub struct FetchDetailsService;
 impl FetchDetailsService {
@@ -15,7 +26,9 @@ impl FetchDetailsService {
         let all_games = ApiSeasonService::read_all();
         let mut applicable_games: Vec<&ApiGame> = all_games.iter()
             .filter(|e| e.played)
-            .filter(|e| StatsService::is_stale(&e.league, &e.game_uuid) || PlayerService::is_stale(&e.league, &e.game_uuid))
+            .filter(|e| 
+                StatsService::is_stale(&e.league, &e.game_uuid, Some(e.season.clone().into())) || 
+                PlayerService::is_stale(&e.league, &e.game_uuid, Some(e.season.clone().into())))
             .collect();
 
         let nr_games_left = applicable_games.len();
@@ -26,9 +39,9 @@ impl FetchDetailsService {
         for e in applicable_games {
             log::info!("[FETCHDETAILS] {}", e.game_uuid);
             futures::join!(
-                StatsService::update(&e.league, &e.game_uuid, Some(Duration::from_secs(0))),
-                PlayerService::update(&e.league, &e.game_uuid, Some(Duration::from_secs(0))),
-                EventService::update(&e.season, &e.game_uuid, Some(Duration::from_secs(0)))
+                StatsService::update(&e.league, &e.game_uuid, Some(e.season.clone().into())),
+                PlayerService::update(&e.league, &e.game_uuid, Some(e.season.clone().into())),
+                EventService::update(&e.season, &e.game_uuid, Some(e.season.clone().into()))
             );
             
             tokio::time::sleep(Duration::from_secs(1)).await;

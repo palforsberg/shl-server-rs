@@ -38,6 +38,8 @@ pub struct AppState {
     pub live_activities: Vec<(String, ApnBody)>,
     pub stat_calls: HashMap<String, u16>,
     pub added_games: HashMap<GameKey, Vec<SeasonGame>>,
+
+    pub apn_response: HashMap<String, (StatusCode, String)>
 }
 
 
@@ -77,6 +79,7 @@ impl ExternalServer {
             added_games: HashMap::new(),
             live_activities: vec![],
             store_live_activities: false,
+            apn_response: HashMap::new(),
         }));
 
         ExternalServer {
@@ -152,10 +155,19 @@ impl ExternalServer {
             *val += 1;
 
             if safe_state.store_live_activities {
-                safe_state.live_activities.push(( device_token, apn_body ));
+                safe_state.live_activities.push(( device_token.clone(), apn_body ));
             }
         } else {
-            state.write().await.notifications.push((device_token, apn_body));
+            state.write().await.notifications.push((device_token.clone(), apn_body));
+        }
+        if let Some((status, reason)) = state.read().await.apn_response.get(&device_token) {
+            let mut rsp = HashMap::new();
+            rsp.insert("reason", reason.clone());
+            (*status, Json(rsp))
+        } else {
+            let mut rsp = HashMap::new();
+            rsp.insert("success", "ok".to_string());
+            (StatusCode::OK, Json(rsp))
         }
     }
 
@@ -215,7 +227,7 @@ impl ExternalServer {
                             }
                         }
                     }
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             })
         };

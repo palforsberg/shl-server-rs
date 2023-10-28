@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use serde::{Serialize, Deserialize};
 
-use crate::{models::StringOrNum, models_api::{report::{GameStatus, ApiGameReport}, event::{ApiGameEvent, GoalInfo, ApiEventType, Player, ShotInfo, PenaltyInfo}, game::ApiGame}};
+use crate::{models::StringOrNum, models_api::{report::GameStatus, event::{ApiGameEvent, GoalInfo, ApiEventType, Player, ShotInfo, PenaltyInfo}}};
 
 
 
@@ -173,6 +173,8 @@ pub enum LiveState {
     Ongoing,
     Intermission,
     Decided,
+    Overtime,
+    Shootout,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -239,8 +241,6 @@ pub struct ShotType {
 impl LiveEventTeam {
     pub fn get_team_id(&self) -> String {
         match self.teamId.as_str() {
-            "KHC" => "KAL".to_string(),
-            "NYB" => "NVIF".to_string(),
             _ => self.teamId.clone(),
         }
     }
@@ -249,8 +249,6 @@ impl LiveEventTeam {
 impl EventTeam {
     pub fn get_team_id(&self) -> String {
         match self.teamId.as_str() {
-            "KHC" => "KAL".to_string(),
-            "NYB" => "NVIF".to_string(),
             _ => self.teamId.clone(),
         }
     }
@@ -399,8 +397,6 @@ impl TeamStatistics {
     }
     pub fn get_team_id(&self) -> String {
         match self.teamId.as_str() {
-            "KHC" => "KAL".to_string(),
-            "NYB" => "NVIF".to_string(),
             _ => self.teamId.clone(),
         }
     }
@@ -466,96 +462,6 @@ impl From<LiveEvent> for ApiGameEvent {
                 },
                 _ => ApiEventType::General,
             },
-        }
-    }
-}
-impl ApiGameReport {
-    pub fn from(value: &LiveEvent, report: Option<ApiGame>) -> Option<ApiGameReport> {
-        match &value.get_event_type() {
-            EventType::Goal(e) => Some(ApiGameReport {
-                game_uuid: value.gameUuid.clone(),
-                gametime: e.time.clone(),
-                status: GameStatus::get_from(&e.gameState, value.period.to_num()),
-                home_team_code: e.homeTeam.get_team_id(),
-                away_team_code: e.awayTeam.get_team_id(),
-                home_team_result: e.homeTeam.score.to_num(),
-                away_team_result: e.awayTeam.score.to_num(),
-                overtime: report.as_ref().map(|e| e.overtime), 
-                shootout: report.as_ref().map(|e| e.shootout),
-            }),
-            EventType::Shot(e) => Some(ApiGameReport {
-                game_uuid: value.gameUuid.clone(),
-                gametime: e.time.clone(),
-                status: GameStatus::get_from(&e.gameState, value.period.to_num()),
-                home_team_code: e.homeTeam.get_team_id(),
-                away_team_code: e.awayTeam.get_team_id(),
-                home_team_result: report.as_ref().map(|r| r.home_team_result).unwrap_or(e.homeTeam.score.to_num()),
-                away_team_result: report.as_ref().map(|r| r.away_team_result).unwrap_or(e.awayTeam.score.to_num()),
-                overtime: report.as_ref().map(|e| e.overtime), 
-                shootout: report.as_ref().map(|e| e.shootout),
-            }),
-            EventType::Penalty(e) => Some(ApiGameReport {
-                game_uuid: value.gameUuid.clone(),
-                gametime: e.time.clone(),
-                status: GameStatus::get_from(&e.gameState, value.period.to_num()),
-                home_team_code: e.homeTeam.get_team_id(),
-                away_team_code: e.awayTeam.get_team_id(),
-                home_team_result: report.as_ref().map(|r| r.home_team_result).unwrap_or(e.homeTeam.score.to_num()),
-                away_team_result: report.as_ref().map(|r| r.away_team_result).unwrap_or(e.awayTeam.score.to_num()),
-                overtime: report.as_ref().map(|e| e.overtime), 
-                shootout: report.as_ref().map(|e| e.shootout),
-            }),
-            EventType::Period(a) => {
-                let status = match (a.started, a.finished) {
-                    (true, true) => (GameStatus::Intermission, "20:00"),
-                    (_, _) => (GameStatus::get_from("Ongoing", value.period.to_num()), "00:00"),
-                };
-                let overtime = match status.0 {
-                    GameStatus::Overtime => Some(true),
-                    _ => report.as_ref().map(|e| e.overtime),
-                };
-                let shootout = match status.0 {
-                    GameStatus::Shootout => Some(true),
-                    _ => report.as_ref().map(|e| e.overtime),
-                };
-                report.map(|rep| ApiGameReport {
-                    game_uuid: value.gameUuid.clone(),
-                    gametime: status.1.to_string(),
-                    status: status.0,
-                    home_team_code: rep.home_team_code,
-                    away_team_code: rep.away_team_code,
-                    home_team_result: rep.home_team_result,
-                    away_team_result: rep.away_team_result,
-                    overtime, 
-                    shootout,
-                })
-            },
-            EventType::Goalkeeper(a) => {
-                report.map(|e| ApiGameReport {
-                    game_uuid: value.gameUuid.clone(),
-                    gametime: e.gametime.unwrap_or("00:00".to_string()),
-                    status: GameStatus::get_from(&a.gameState, value.period.to_num()),
-                    home_team_code: e.home_team_code,
-                    away_team_code: e.away_team_code,
-                    home_team_result: e.home_team_result,
-                    away_team_result: e.away_team_result,
-                    overtime: Some(e.overtime), 
-                    shootout: Some(e.shootout),
-                })
-            },
-            EventType::Unknown => {
-                report.map(|e| ApiGameReport {
-                    game_uuid: e.game_uuid.clone(),
-                    gametime: e.gametime.unwrap_or("00:00".to_string()),
-                    status: e.status,
-                    home_team_code: e.home_team_code,
-                    away_team_code: e.away_team_code,
-                    home_team_result: e.home_team_result,
-                    away_team_result: e.away_team_result,
-                    overtime: Some(e.overtime), 
-                    shootout: Some(e.shootout),
-                })
-            }
         }
     }
 }
@@ -762,20 +668,5 @@ mod tests {
         let event: SseEvent = serde_json::from_str(json).expect("should pass");
         assert!(event.liveState.is_some());
         assert!(matches!(event.liveState.expect("is some").liveState, LiveState::Ongoing));
-    }
-
-    #[test]
-    fn test_khc() {
-        let json = r#"{"liveEvent":{"gameUuid":"qcz-8ThpALD8H","gameSourceId":"20230922-VVIK-KHC","gameId":19007,"eventId":18,"eventUuid":"e5fe325b-fbfc-52bd-b754-c0770eed8a6f","round":1,"gameType":"HA","arena":"Tjusthallen","attendance":0,"startDateAndTime":"2023-09-22T19:00:00","period":1,"time":"00:00","gameState":"Ongoing","revision":1,"type":"shot","realWorldTime":"2023-09-22T19:11:51.670459","updatedTime":"2023-09-22T19:11:44.704","homeTeam":{"teamId":"VVIK","teamName":"Västerviks IK","teamCode":"VVIK","score":0},"awayTeam":{"teamId":"KHC","teamName":"Kalmar HC","teamCode":"KHC","score":0},"eventTeam":{"teamId":"KHC","place":"away","teamCode":"KHC","teamName":"Kalmar HC"},"player":{"playerId":"6179","firstName":"Andrew","familyName":"Vanderbeck","jerseyToday":"19"},"locationX":168,"locationY":-70,"goalSection":2,"isPenaltyShot":false,"source":"statnet-xml-parser"}}"#;
-
-        let event: SseEvent = serde_json::from_str(json).expect("should pass");
-        assert!(event.liveEvent.is_some());
-        match event.liveEvent.unwrap().get_event_type() {
-            EventType::Shot(e) => {
-                assert_eq!(e.eventTeam.teamId, "KHC");
-                assert_eq!(e.eventTeam.get_team_id(), "KAL");
-            },
-            _ => panic!("not shot"),
-        }
     }
 }

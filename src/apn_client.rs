@@ -90,7 +90,7 @@ impl ApnClient {
         if let Some(str) = body.reason {
             match str.as_str() {
                 "BadDeviceToken" => Err(ApnError::BadDeviceToken),
-                // "Unregistered" => Err(ApnError::BadDeviceToken),
+                "Unregistered" => Err(ApnError::BadDeviceToken),
                 _ => Err(ApnError::Other)
             }
         } else {
@@ -128,7 +128,7 @@ impl ApnClient {
 
 
 #[derive(Deserialize)]
-struct ApnResponse {
+pub struct ApnResponse {
     reason: Option<String>,
 }
 

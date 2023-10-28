@@ -7,7 +7,7 @@ use tower::ServiceBuilder;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing::{log, Span};
 
-use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, ApiVotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}}, status_service::StatusService};
+use crate::{SafeApiSeasonService, api_game_details::ApiGameDetailsService, api_season_service::ApiSeasonService, api_teams_service::{ApiTeamsService, ApiTeam}, standing_service::StandingService, models::{League, Season}, vote_service::{Vote, SafeVoteService}, api_ws::{ApiWs, WsMsg}, user_service::UserService, models_legacy::{game_details::LegacyGameDetails, player_stats::LegacyPlayerStats, season_games::LegacyGame}, api_player_stats_service::{ApiPlayerStatsService, TeamSeasonKey}, playoff_service::PlayoffService, CONFIG, models_api::{vote::{VoteBody, ApiVotePerGame}, game_details::ApiGameDetails, report::GameStatus, user::AddUser, live_activity::{StartLiveActivity, EndLiveActivity}, update_report::ApiUpdateReport}, status_service::StatusService, msg_bus::{MsgBus, Msg, UpdateReport}};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -15,18 +15,19 @@ pub struct ApiState {
     pub season_service: SafeApiSeasonService,
     pub vote_service: SafeVoteService,
     pub broadcast_sender: Sender<WsMsg>,
-
+    pub msg_bus: Arc<MsgBus>,
     pub nr_ws: Arc<RwLock<i16>>,
 }
 
 pub struct Api;
 impl Api {
-    pub async fn serve(port: u16, season_service: SafeApiSeasonService, vote_service: SafeVoteService, broadcast_sender: Sender<WsMsg>) {
+    pub async fn serve(port: u16, season_service: SafeApiSeasonService, vote_service: SafeVoteService, broadcast_sender: Sender<WsMsg>, msg_bus: Arc<MsgBus>) {
         let state = ApiState {
             game_details_service: ApiGameDetailsService::new(season_service.clone()),
             season_service,
             vote_service,
             broadcast_sender,
+            msg_bus,
             nr_ws: Arc::new(RwLock::new(0)),
         };
         let app = Router::new()
@@ -42,10 +43,12 @@ impl Api {
 
             .route("/v2/games/:season", get(Api::get_games))
             .route("/v2/game/:game_uuid", get(Api::get_game_details))
+            .route("/v2/game/updated/:game_uuid", get(Api::get_updated_game_details))
             .route("/v2/teams", get(Api::get_teams))
             .route("/v2/standings/:season", get(Api::get_leagues))
             .route("/v2/playoffs/:season", get(Api::get_playoffs))
             .route("/v2/player/:player_id", get(Api::get_player))
+            .route("/v2/players/:season", get(Api::get_season_players))
             .route("/v2/players/:season/:team", get(Api::get_players))
     
             .route("/v2/live-activity/start", post(Api::start_live_activity))
@@ -58,6 +61,7 @@ impl Api {
             .route("/v2/ws", get(Api::ws_handler))
 
             .route("/v2/status", get(Api::get_status))
+            .route("/v2/update-report", post(Api::update_report))
     
             .route("/", get(Api::root))
             .with_state(state)
@@ -109,7 +113,7 @@ impl Api {
     }
     
     async fn get_game_details(Path(game_uuid): Path<String>, State(state): State<ApiState>) -> Json<Option<ApiGameDetails>> {
-        Json(state.game_details_service.read(&game_uuid).await)
+        Json(state.game_details_service.read(&game_uuid, None).await)
     }
     
     async fn get_teams() -> impl IntoResponse {
@@ -132,7 +136,7 @@ impl Api {
         Path((game_uuid, _)): Path<(String, String)>, 
         State(state): State<ApiState>) -> Json<Option<LegacyGameDetails>> {
             
-        Json(state.game_details_service.read(&game_uuid).await.map(|e| e.into()))
+        Json(state.game_details_service.read(&game_uuid, None).await.map(|e| e.into()))
     }
 
     async fn get_legacy_standings(season: Option<Path<String>>) -> impl IntoResponse {
@@ -166,6 +170,14 @@ impl Api {
     async fn get_player(Path(player_id): Path<i32>) -> impl IntoResponse {
         let db = ApiPlayerStatsService::get_player_career_db();
         db.read_raw(&player_id)
+    } 
+
+    async fn get_season_players(Path(season): Path<String>) -> impl IntoResponse {
+        if let Ok(e) = season.parse() {
+            (StatusCode::OK, ApiPlayerStatsService::get_season_player_db().read_raw(&e).into_response())
+        } else {
+            (StatusCode::NOT_FOUND, "404".to_string().into_response())
+        }
     } 
 
     async fn get_playoffs(Path(season): Path<String>) -> impl IntoResponse {
@@ -230,6 +242,46 @@ impl Api {
 
     async fn get_status() -> impl IntoResponse {
         StatusService::read_raw().into_response()
+    }
+
+    async fn update_report(
+        headers: HeaderMap, 
+        State(state): State<ApiState>, 
+        Json(update_report): Json<ApiUpdateReport>) 
+        -> Result<(StatusCode, String), (StatusCode, String)> {
+        let key = headers.get("x-admin-key").and_then(|e| e.to_str().ok()).unwrap_or_default();
+        if key != CONFIG.api_admin_key {
+            Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))
+        } else {
+            let game_uuid = update_report.game_uuid.clone();
+            
+            if state.season_service.read().await.read_current_season_game(&game_uuid).is_some() {
+                let report = UpdateReport {
+                    gametime: Some(update_report.gametime),
+                    status: Some(update_report.status),
+                    home_team_result: Some(update_report.home_team_result),
+                    away_team_result: Some(update_report.away_team_result),
+                    overtime: update_report.overtime,
+                    shootout: update_report.shootout,
+                };
+                state.msg_bus.send(Msg::UpdateReport { report, game_uuid, forced: true });
+                Ok((StatusCode::OK, "success".to_string()))
+            } else {
+                Err((StatusCode::NOT_FOUND, "Not found".to_string()))
+            }
+        }
+    }
+
+    async fn get_updated_game_details(headers: HeaderMap,
+        State(state): State<ApiState>, 
+        Path(game_uuid): Path<String>) 
+        -> Result<Json<Option<ApiGameDetails>>, (StatusCode, String)> {
+        let key = headers.get("x-admin-key").and_then(|e| e.to_str().ok()).unwrap_or_default();
+        if key != CONFIG.api_admin_key {
+            Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))
+        } else {
+            Ok(Json(state.game_details_service.read(&game_uuid, Some(Duration::from_millis(0))).await))
+        }
     }
 }
 

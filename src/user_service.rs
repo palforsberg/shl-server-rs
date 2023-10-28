@@ -36,7 +36,9 @@ impl UserService {
 
         let teams: Vec<String> = request.teams.into_iter().map(|e| {
             match e.as_str() {
-                "HERR" => "NVIF".to_string(),
+                "HERR" => "NYB".to_string(),
+                "NVIF" => "NYB".to_string(),
+                "KAL" => "KHC".to_string(),
                 _ => e.to_string(),
             }
         }).collect();

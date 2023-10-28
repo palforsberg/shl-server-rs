@@ -164,7 +164,8 @@ impl EventService {
             db_raw.read(&game_uuid.to_string()).unwrap_or_default()
         } else {
             let raw_events = rest_client::get_events_2023(game_uuid).await.unwrap_or_default();
-            let result = add_period_events(raw_events);
+            let mut result = add_period_events(raw_events);
+            result.reverse();
             _ = db_raw.write(&game_uuid.to_string(), &result);
             result
         };

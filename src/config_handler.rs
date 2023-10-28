@@ -23,6 +23,8 @@ pub struct Config {
 
     pub api_key: String,
 
+    pub api_admin_key: String,
+
     #[serde(default="default_sse_sleep")]
     pub sse_sleep: u64,
 

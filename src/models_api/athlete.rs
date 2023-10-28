@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-use crate::models::Season;
+use crate::models::{Season, League};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ApiAthlete {
@@ -11,6 +11,7 @@ pub struct ApiAthlete {
     pub team_code: String,
     pub position: String,
     pub season: Season,
+    pub league: League,
     #[serde(flatten)]
     pub stats: ApiAthleteStats,
 }

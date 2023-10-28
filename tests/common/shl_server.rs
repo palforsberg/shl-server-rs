@@ -38,6 +38,7 @@ impl ShlServer {
             apn_topic: "com.integration.test".to_string(),
 
             db_path: format!("{}/db", path),
+            api_admin_key: "API_KEY".to_string(),
             api_key: "API_KEY".to_string(),
             sse_sleep: 0,
             sse_file_append: false,
@@ -79,6 +80,7 @@ impl ShlServer {
     where
         F: Fn(&ApiGameDetails) -> bool,
     {
+        tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
         let mut nr_loops = 0;
         loop {
             if let Ok(details) = self.get_api_game_details(game_uuid).await {

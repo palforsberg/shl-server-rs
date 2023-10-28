@@ -8,3 +8,4 @@ pub mod standings;
 pub mod user;
 pub mod live_activity;
 pub mod vote;
+pub mod update_report;

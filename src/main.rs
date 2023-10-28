@@ -6,7 +6,6 @@ use std::time::Duration;
 use api::Api;
 use api_player_stats_service::ApiPlayerStatsService;
 use api_season_service::SafeApiSeasonService;
-use api_ws::WsMsg;
 use bounded_vec_deque::BoundedVecDeque;
 use config_handler::Config;
 use futures::future::join_all;
@@ -22,9 +21,10 @@ use models::Season;
 use vote_service::{VoteService, SafeVoteService};
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
-use crate::models_api::event::{ApiEventTypeLevel, ApiGameEvent};
+use crate::models_api::event::ApiEventTypeLevel;
 use crate::models_api::report::{ApiGameReport, GameStatus};
 use crate::models_external::event::LiveState;
+use crate::msg_bus::UpdateReport;
 use crate::notification_service::NotificationService;
 use crate::report_state_machine::ReportStateMachine;
 use crate::event_service::EventService;
@@ -112,14 +112,15 @@ async fn main() {
     let all_games = ApiSeasonService::read_all();
     ApiPlayerStatsService::update(&all_games);
 
-    
+    let notification_service = Arc::new(RwLock::new(NotificationService::new()));
     let msg_bus = Arc::new(MsgBus::new());
 
     let h1 = {
         let api_season_service = api_season_service.clone();
         let broadcast_sender = broadcast_sender.clone();
         let vote_service = vote_service.clone();
-        tokio::spawn(async { Api::serve(CONFIG.port, api_season_service, vote_service, broadcast_sender).await })
+        let msg_bus = msg_bus.clone();
+        tokio::spawn(async { Api::serve(CONFIG.port, api_season_service, vote_service, broadcast_sender, msg_bus).await })
     };
     let h2 = {
         let api_season_service = api_season_service.clone();
@@ -128,9 +129,8 @@ async fn main() {
     };
     let h3 = {
         let api_season_service = api_season_service.clone();
-        let broadcast_sender = broadcast_sender.clone();
         let msg_bus = msg_bus.clone();
-        tokio::spawn(async { handle_sse(api_season_service, live_game_receiver, broadcast_sender, msg_bus).await })
+        tokio::spawn(async { handle_sse(api_season_service, live_game_receiver, msg_bus).await })
     };
     let h4 = {
         let api_season_service = api_season_service.clone();
@@ -141,8 +141,13 @@ async fn main() {
         let api_season_service = api_season_service.clone();
         tokio::spawn(async { handle_votes(api_season_service, vote_receiver).await; })
     };
-
-    join_all(vec!(h1, h2, h3, h4, h5)).await;
+    let h6 = {
+        let api_season_service = api_season_service.clone();
+        let msg_bus = msg_bus.clone();
+        let notification_service = notification_service.clone();
+        tokio::spawn(async { write_event_service(msg_bus, api_season_service, notification_service).await; })
+    };
+    join_all(vec!(h1, h2, h3, h4, h5, h6)).await;
 
 }
 
@@ -189,79 +194,67 @@ async fn handle_loop(
 
 async fn handle_sse(
     api_season_service: SafeApiSeasonService,
-    mut live_game_receiver: Receiver<String>, 
-    broadcast_sender: tokio::sync::broadcast::Sender<WsMsg>,
+    mut live_game_receiver: Receiver<String>,
     msg_bus: Arc<MsgBus>,
 ) {
     log::info!("[SSE] Start sse_listener");
-
-    let notification_service = Arc::new(RwLock::new(NotificationService::new()));
-
     loop {
         if let Some(game_uuid) = live_game_receiver.recv().await {
-            let (uuid, api_season_service, broadcast_sender, notification_service, msg_bus) = (game_uuid.clone(), api_season_service.clone(), broadcast_sender.clone(), notification_service.clone(), msg_bus.clone());
+            let (uuid, api_season_service, msg_bus) = (game_uuid.clone(), api_season_service.clone(), msg_bus.clone());
             tokio::spawn(async move {
                 log::info!("[SSE] Start SSE {uuid}");
-                let mut rsm = ReportStateMachine::new();
                 let (handle, mut sse_msg_receiver) = SseClient::spawn_listener(&uuid).await;
                 loop {
-                    let mut game_report: Option<ApiGameReport> = None;
-                    let mut game_event: Option<(ApiGameEvent, bool)> = None;
                     select! {
                         Some((game_uuid, msg)) = sse_msg_receiver.recv() => {
                             match msg {
                                 SseMsg::Report(raw_report) => {
-                                    let report: ApiGameReport = raw_report.into();
-                                    game_report = Some(report);
+                                    let report: UpdateReport = raw_report.into();
+                                    log::info!("[SSE] REPORT {report}");
+                                    msg_bus.send(Msg::UpdateReport { report, game_uuid, forced: false });
                                 },
                                 SseMsg::Event(raw_event) => {
                                     let new_event = EventService::store_older_raw(&uuid, &raw_event);
                                     let event = raw_event.into_mapped_event(&uuid);
                                     log::info!("[SSE] EVENT {event}");
-                                    game_event = Some((event, new_event));
+                                    if new_event {
+                                        msg_bus.send(Msg::AddEvent { event, game_uuid });
+                                    }
                                 },
                                 SseMsg::LiveEvent(live_event) => {
-                                    log::info!("[SSE] LIVE_EVENT {live_event}");
                                     let new_event = EventService::store_raw(&uuid, &live_event);
+                                    log::info!("[SSE] LIVE_EVENT {}{live_event}", match new_event { true => "", false => "OLD "});
                                     if new_event {
-                                        game_report = ApiGameReport::from(&live_event, api_season_service.read().await.read_current_season_game(&game_uuid));
-                                    } else {
-                                        log::info!("Old event");
+                                        msg_bus.send(Msg::UpdateReport { report: UpdateReport::from(&live_event), game_uuid: game_uuid.clone(), forced: false });
+                                        msg_bus.send(Msg::AddEvent { event: live_event.into(), game_uuid });
                                     }
-                                    game_event = Some((live_event.into(), new_event));
                                 },
                                 SseMsg::TeamStats(_) => {
-                                    if let Some(report) = GameReportService::read(&game_uuid) {
-                                        log::info!("[SSE] TEAM_STATS {report}");
-                                    }
+                                    // if let Some(report) = GameReportService::read(&game_uuid) {
+                                    //     log::info!("[SSE] TEAM_STATS {report}");
+                                    // }
                                 },
                                 SseMsg::GameTime(game_time) => {
-                                    let report = GameReportService::read(&game_uuid);
-                                    if let Some(mut report) = report {
-                                        let game_time_status = GameStatus::from(game_time.period.to_num());
-                                        if report.status == game_time_status {
-                                            report.gametime = game_time.periodTime;
-                                            log::info!("[SSE] GAME_TIME {report}");
-                                        } else {
-                                            log::info!("[SSE] invalid GAME_TIME {:#?} {}", game_time_status, game_time.periodTime);
-                                        }
-                                        game_report = Some(report);
-                                    }
+                                    let report = UpdateReport {
+                                        gametime: Some(game_time.periodTime),
+                                        status: Some(GameStatus::from(game_time.period.to_num())),
+                                        ..Default::default()
+                                    };
+                                    log::info!("[SSE] GAME_TIME {report}");
+                                    msg_bus.send(Msg::UpdateReport { report, game_uuid, forced: false });
+                                    
                                 },
                                 SseMsg::LiveState(live_state) => {
                                     log::info!("[SSE] LIVE_STATE {:?} -> {:?}", live_state.previousLiveState, live_state.liveState);
                                     match (live_state.previousLiveState, live_state.liveState) {
-                                        (_, LiveState::Ongoing) => {
+                                        (LiveState::Unknown, LiveState::Ongoing) => {
                                             // GameStart
                                         },
                                         (_, LiveState::Decided) => {
                                             // GameEnd
                                             log::info!("[SSE] Live State GameEnd");
-                                            let report = GameReportService::read(&game_uuid);
-                                            if let Some(mut report) = report {
-                                                report.status = GameStatus::Finished;
-                                                game_report = Some(report);
-                                            }
+                                            let report = UpdateReport { status: Some(GameStatus::Finished), ..Default::default() };
+                                            msg_bus.send(Msg::UpdateReport { report, game_uuid, forced: false });
                                         },
                                         (_, _) => {
 
@@ -282,43 +275,6 @@ async fn handle_sse(
                             }
                         }
                     }
-
-                    if let Some(report) = game_report {
-                        let old_report = GameReportService::read(&uuid);
-                        if !report.is_valid_update(&old_report) {
-                            log::info!("[SSE] OLD REPORT {} vs {}", report, old_report.map(|e| e.to_string()).unwrap_or("".to_string()));
-                        } else {
-                            let report_event = rsm.process(&report);
-                            GameReportService::store(&uuid, &report);
-                            log::info!("[SSE] REPORT {report}");
-                            let updated_api_game = api_season_service.write().await.update_from_report(&report);
-                            
-                            if let Some(g) = updated_api_game {
-                                if let Some(report) = report_event {
-                                    notification_service.write().await.process(&g, &report).await;
-                                } else {
-                                    notification_service.write().await.process_live_activity(&g).await;
-                                }
-                            } else {
-                                log::error!("[SSE] Notification error, no game found for {}", uuid);
-                            }
-
-                            _ = broadcast_sender.send(report.clone().into());
-                            msg_bus.send(Msg::Report { report, game_uuid: uuid.clone() });
-                        }
-
-                    }
-                    if let Some((event, new_event)) = game_event {
-                        if new_event && event.info.get_level() != ApiEventTypeLevel::Low {
-                            if let Some(game) = api_season_service.read().await.read_current_season_game(uuid.as_str()) {
-                                notification_service.write().await.process(&game, &event).await;
-                            } else {
-                                log::error!("[SSE] Notification error, no game found for {}", uuid);
-                            }
-                        }
-                        _ = broadcast_sender.send(event.clone().into());
-                        msg_bus.send(Msg::Event { event, new_event, game_uuid: uuid.clone() });
-                    }
                 }
                 handle.abort();
                 log::info!("[SSE] Aborted {}", uuid);
@@ -327,20 +283,77 @@ async fn handle_sse(
     }
 }
 
+async fn write_event_service(
+    msg_bus: Arc<MsgBus>, 
+    api_season_service: SafeApiSeasonService,
+    notification_service: Arc<RwLock<NotificationService>>,
+) {
+    let mut receiver = msg_bus.subscribe();
+    loop {
+        if let Ok(msg) = receiver.recv().await {
+            if let Msg::UpdateReport { report: update_report, game_uuid, forced } = msg {
+                let old_report = match GameReportService::read(&game_uuid) {
+                    Some(r) => Some(r),
+                    None => api_season_service.read().await
+                        .read_current_season_game(&game_uuid)
+                        .map(ApiGameReport::default_from),
+                };
+                if old_report.is_none() {
+                    log::error!("[WRITE] Old report not found")
+                }
+                let old_report = old_report.unwrap();  
+                let report = update_report.to_report(&old_report);
+
+                if !report.is_valid_update(&old_report) && !forced {
+                    log::info!("[WRITE] OLD REPORT {} vs {}", report, old_report);
+                } else {
+                    GameReportService::store(&game_uuid, &report);
+                    log::info!("[WRITE] REPORT {report}");
+                    let updated_api_game = api_season_service.write().await.update_from_report(&report);
+                    if let Some(g) = updated_api_game {
+                        if let Some(report_event) = ReportStateMachine::process(&report, &old_report) {
+                            notification_service.write().await.process(&g, &report_event).await;
+                        } else {
+                            notification_service.write().await.process_live_activity(&g).await;
+                        }
+                    } else {
+                        log::error!("[SSE] Notification error, no game found for {}", game_uuid);
+                    }
+        
+                    msg_bus.send(Msg::ReportUpdated { report, game_uuid });
+                }   
+            } else if let Msg::AddEvent { event, game_uuid } = msg {
+                if event.info.get_level() != ApiEventTypeLevel::Low {
+                    if let Some(game) = api_season_service.read().await.read_current_season_game(game_uuid.as_str()) {
+                        notification_service.write().await.process(&game, &event).await;
+                    } else {
+                        log::error!("[SSE] Notification error, no game found for {}", game_uuid);
+                    }
+                    msg_bus.send(Msg::EventUpdated { event: event.clone(), game_uuid });
+                }
+            }
+        }
+    }
+}
+
+
 async fn handle_stats_fetch(msg_bus: Arc<MsgBus>, api_season_service: SafeApiSeasonService) {
     let mut receiver = msg_bus.subscribe();
     loop {
         if let Ok(msg) = receiver.recv().await {
+            let should_update = matches!(msg, Msg::EventUpdated { event: _, game_uuid: _ } | Msg::ReportUpdated { report: _, game_uuid: _ });
+            if !should_update {
+                continue;
+            }
             let all_games = api_season_service.read().await.read_current_season();
             if let Some(g) = all_games.iter().find(|e| e.game_uuid == msg.get_game_uuid().as_str()) {
-                StatsService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
-                PlayerService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
                 if g.status == GameStatus::Finished {
                     log::info!("Game {g} finished, update standings");
                     StandingService::update(&Season::get_current(), &all_games);
                 }
+                StatsService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
+                PlayerService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
             }
-            
         }
     }
 }
