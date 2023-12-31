@@ -39,7 +39,7 @@ impl FetchDetailsService {
         for e in applicable_games {
             log::info!("[FETCHDETAILS] {}", e.game_uuid);
             futures::join!(
-                StatsService::update(&e.league, &e.game_uuid, Some(e.season.clone().into())),
+                StatsService::update(&e.league, &e.season, &e.game_uuid, Some(e.season.clone().into())),
                 PlayerService::update(&e.league, &e.game_uuid, Some(e.season.clone().into())),
                 EventService::update(&e.season, &e.game_uuid, Some(e.season.clone().into()))
             );

@@ -19,6 +19,7 @@ use tokio::sync::mpsc::{Sender, Receiver};
 
 use models::Season;
 use vote_service::{VoteService, SafeVoteService};
+use crate::api_game_details::ApiGameDetailsService;
 use crate::api_season_service::ApiSeasonService;
 use crate::fetch_details_service::FetchDetailsService;
 use crate::models_api::event::ApiEventTypeLevel;
@@ -125,12 +126,14 @@ async fn main() {
     let h2 = {
         let api_season_service = api_season_service.clone();
         let vote_service = vote_service.clone();
+        let live_game_sender = live_game_sender.clone();
         tokio::spawn(async { handle_loop(live_game_sender, api_season_service, vote_service).await })
     };
     let h3 = {
         let api_season_service = api_season_service.clone();
         let msg_bus = msg_bus.clone();
-        tokio::spawn(async { handle_sse(api_season_service, live_game_receiver, msg_bus).await })
+        let live_game_sender = live_game_sender.clone();
+        tokio::spawn(async { handle_sse(api_season_service, live_game_receiver, live_game_sender, msg_bus).await })
     };
     let h4 = {
         let api_season_service = api_season_service.clone();
@@ -195,12 +198,13 @@ async fn handle_loop(
 async fn handle_sse(
     api_season_service: SafeApiSeasonService,
     mut live_game_receiver: Receiver<String>,
+    live_game_sender: Sender<String>,
     msg_bus: Arc<MsgBus>,
 ) {
     log::info!("[SSE] Start sse_listener");
     loop {
         if let Some(game_uuid) = live_game_receiver.recv().await {
-            let (uuid, api_season_service, msg_bus) = (game_uuid.clone(), api_season_service.clone(), msg_bus.clone());
+            let (uuid, api_season_service, msg_bus, live_game_sender) = (game_uuid.clone(), api_season_service.clone(), msg_bus.clone(), live_game_sender.clone());
             tokio::spawn(async move {
                 log::info!("[SSE] Start SSE {uuid}");
                 let (handle, mut sse_msg_receiver) = SseClient::spawn_listener(&uuid).await;
@@ -263,14 +267,20 @@ async fn handle_sse(
                                 }
                             }
                         },
-                        // if 5 minutes has passed without any new events and status is finished => abort
-                        // TODO: abort 5 minutes after game end
                         _ = tokio::time::sleep(Duration::from_secs(60 * 5)) => {
-                            if let Some(GameStatus::Finished) = api_season_service.read().await.read_current_season_game(&uuid).map(|e| e.status) {
-                                log::info!("[SSE] Game Finished, Abort {}", uuid);
+                            let game = api_season_service.read().await.read_current_season_game(&uuid);
+                            if let Some(GameStatus::Finished) = game.as_ref().map(|e| e.status.clone()) {
+                                log::info!("[SSE] Game Finished, Abort {}", game.map(|e| e.to_string()).unwrap_or(uuid.clone()));
 
                                 UserService::remove_references_to(&uuid);
                                 msg_bus.send(Msg::SseClosed { game_uuid: uuid.clone() });
+                                break;
+                            } else {
+                                log::info!("[SSE] No updates, fetch, restart and abort {}", game.map(|e| e.to_string()).unwrap_or(uuid.clone()));
+                                live_game_sender.send(uuid.clone()).await.ok_log("[SSE] failed to restart game");
+                                ApiGameDetailsService::new(api_season_service.clone())
+                                    .read(&uuid, Some(Duration::from_millis(0)))
+                                    .await;
                                 break;
                             }
                         }
@@ -351,7 +361,7 @@ async fn handle_stats_fetch(msg_bus: Arc<MsgBus>, api_season_service: SafeApiSea
                     log::info!("Game {g} finished, update standings");
                     StandingService::update(&Season::get_current(), &all_games);
                 }
-                StatsService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
+                StatsService::update(&g.league, &g.season, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
                 PlayerService::update(&g.league, &g.game_uuid, Some(std::time::Duration::from_secs(30))).await;
             }
         }

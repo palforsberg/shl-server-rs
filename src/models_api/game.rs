@@ -37,7 +37,7 @@ impl Display for ApiGame {
 }
 impl ApiGame {
     pub fn is_potentially_live(&self) -> bool {
-        let fifteen_min_in_future = Utc::now() + Duration::minutes(5);
-        self.status != GameStatus::Finished && (self.start_date_time < fifteen_min_in_future)
+        let three_min_in_future = Utc::now() + Duration::minutes(3);
+        self.status != GameStatus::Finished && (self.start_date_time < three_min_in_future)
     }
 }

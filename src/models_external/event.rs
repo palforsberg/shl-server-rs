@@ -4,8 +4,6 @@ use serde::{Serialize, Deserialize};
 
 use crate::{models::StringOrNum, models_api::{report::GameStatus, event::{ApiGameEvent, GoalInfo, ApiEventType, Player, ShotInfo, PenaltyInfo}}};
 
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameReport {
     pub gameUuid: String,
@@ -296,6 +294,8 @@ impl PenaltyType {
             "DELAY" => "Delay the game".to_string(),
             "KNEE" => "Kneeing".to_string(),
             "SLASH" => "Slashing".to_string(),
+            "CHARG" => "Charging".to_string(),
+            "CLOSE" => "Closing hand on puck".to_string(),
             _ => self.offence.to_string(),
         }
     }
@@ -322,6 +322,7 @@ pub struct LiveEvent {
     #[serde(flatten)]
     pub eventType: Option<EventType>,
 }
+
 impl Display for LiveEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.get_event_type() {

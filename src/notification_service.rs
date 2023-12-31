@@ -110,7 +110,7 @@ impl LiveActivityEvent {
             ApiEventType::Penalty(a) => {
                 let title = format!("Utvisning - {}", a.penalty.clone().unwrap_or_default());
                 let player = a.player.as_ref().map(|p| p.to_str()).unwrap_or_default();
-                let body = format!("{} • {}", player, a.reason.clone());
+                let body = format!("{player} • {}", event.get_time_info());
                 LiveActivityEvent { title, body: Some(body), team_code: Some(a.team.clone()) }
             }
             ApiEventType::PeriodStart => {

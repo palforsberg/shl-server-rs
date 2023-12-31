@@ -64,6 +64,10 @@ pub fn get_stats_url(league: &League, game_uuid: &str) -> String {
     format!("{}/gameday/periodstats/{game_uuid}", CONFIG.get_url(league))
 }
 
+pub fn get_team_stats_url(league: &League, game_uuid: &str) -> String {
+    format!("{}/gameday/team-stats/{game_uuid}", CONFIG.get_url(league))
+}
+
 pub fn get_player_stats_url(league: &League, game_uuid: &str) -> String {
     format!("{}/gameday/boxscore/{game_uuid}", CONFIG.get_url(league))
 }
