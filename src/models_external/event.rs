@@ -327,6 +327,7 @@ impl Display for LiveEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.get_event_type() {
             EventType::Period(_) => write!(f, "{} {}", self.get_event_type(), self.period.to_str()),
+            EventType::Shot(_) => write!(f, "{} {}", self.get_event_type(), self.eventId.as_ref().map(|e| e.to_str()).unwrap_or_default()),
             _ => write!(f, "{}", self.get_event_type())
         }
     }
@@ -440,18 +441,20 @@ impl From<LiveEvent> for ApiGameEvent {
             info: match value.get_event_type() {
                 EventType::Goal(e) => ApiEventType::Goal(GoalInfo { 
                     team: e.eventTeam.get_team_id(), 
-                    player: Some(Player { first_name: e.player.firstName.clone(), family_name: e.player.familyName.clone(), jersey: e.player.jerseyToday.to_num() as i32 }), 
+                    player: Some(Player { id: Some(e.player.playerId.to_str()), first_name: e.player.firstName.clone(), family_name: e.player.familyName.clone(), jersey: e.player.jerseyToday.to_num() as i32 }), 
                     team_advantage: e.goalStatus.clone().unwrap_or("EQ".to_string()), 
                     home_team_result: e.homeTeam.score.to_num(), 
                     away_team_result: e.awayTeam.score.to_num(), 
-                    location: crate::models_api::event::Location { x: 0.0, y: 0.0 } }),
+                    location: None 
+                }),
                 EventType::Shot(e) => ApiEventType::Shot(ShotInfo { 
                     team: e.eventTeam.get_team_id(), 
-                    location: crate::models_api::event::Location { x: 0.0, y: 0.0 } 
+                    player: Some(Player { id: Some(e.player.playerId.to_str()), first_name: e.player.firstName.clone(), family_name: e.player.familyName.clone(), jersey: e.player.jerseyToday.to_num() as i32 }), 
+                    location: None 
                 }),
                 EventType::Penalty(e) => ApiEventType::Penalty(PenaltyInfo { 
                     team: e.eventTeam.get_team_id(), 
-                    player: e.player.as_ref().map(|p| Player { first_name: p.firstName.clone(), family_name: p.familyName.clone(), jersey: p.jerseyToday.to_num() as i32 }), 
+                    player: e.player.as_ref().map(|p| Player { id: Some(p.playerId.to_str()), first_name: p.firstName.clone(), family_name: p.familyName.clone(), jersey: p.jerseyToday.to_num() as i32 }), 
                     reason: e.get_offence(), 
                     penalty: Some(e.variant.description.clone()) }),
                 EventType::Period(e) => {

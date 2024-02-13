@@ -14,6 +14,7 @@ impl ApiGameEvent {
             GameStatus::Period3 => format!("P3 {}", self.gametime),
             GameStatus::Overtime => format!("Övertid {}", self.gametime),
             GameStatus::Shootout => "Straffar".to_string(),
+            GameStatus::Finished => self.gametime.to_string(),
             _ => "".to_string(),
         }
     }

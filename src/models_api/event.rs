@@ -54,7 +54,10 @@ pub struct ApiGameEvent {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ShotInfo {
     pub team: String,
-    pub location: Location,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player: Option<Player>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -81,15 +84,19 @@ pub struct Location {
 
 pub struct GoalInfo {
     pub team: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub player: Option<Player>,
     pub team_advantage: String,
     pub home_team_result: i16,
     pub away_team_result: i16,
-    pub location: Location,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Player {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub first_name: String,
     pub family_name: String,
     pub jersey: i32,

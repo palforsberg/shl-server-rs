@@ -11,6 +11,7 @@ pub struct UpdateReport {
     pub home_team_result: Option<i16>,
     pub away_team_result: Option<i16>,
 
+    // Only used when updating report from API
     pub overtime: Option<bool>,
     pub shootout: Option<bool>,
 }

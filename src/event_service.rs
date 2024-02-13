@@ -17,7 +17,7 @@ impl FromStr for Player {
         if first_name.is_empty() && family_name.is_empty() {
             Err(ParseStringError)
         } else {
-            Ok(Player { jersey, first_name, family_name })
+            Ok(Player { id: None, jersey, first_name, family_name })
         }
     }
 }
@@ -30,7 +30,7 @@ impl GoalInfo {
             team_advantage: a.extra.teamAdvantage.clone(),
             home_team_result: a.extra.homeForward.to_num(),
             away_team_result: a.extra.homeAgainst.to_num(),
-            location: Location { x: a.location.x, y: a.location.y }
+            location: Some(Location { x: a.location.x, y: a.location.y })
         }
     }
 }
@@ -57,7 +57,7 @@ impl PenaltyInfo {
 
 impl ShotInfo {
     pub fn new(info: &Shot) -> ShotInfo {
-        ShotInfo { team: info.team.clone(), location: Location { x: info.location.x, y: info.location.y } }
+        ShotInfo { team: info.team.clone(), player: None, location: Some(Location { x: info.location.x, y: info.location.y }) }
     }
 }
 
@@ -123,10 +123,8 @@ fn add_period_events(raw_events: Vec<LiveEvent>) -> Vec<LiveEvent> {
         if last_period.is_none() {
             last_period = Some(e.period.to_num());
         }
-        if !matches!(e.get_event_type(), EventType::Goal(_) | EventType::Penalty(_)) {
-            continue;
-        }
-        if e.period.to_num() != last_period.unwrap() {
+        if matches!(e.get_event_type(), EventType::Goal(_) | EventType::Penalty(_) | EventType::Shot(_)) && 
+            e.period.to_num() != last_period.unwrap() {
             result.push(LiveEvent { 
                 gameUuid: e.gameUuid.to_string(), 
                 eventId: Some(e.period.clone()), 
@@ -135,7 +133,9 @@ fn add_period_events(raw_events: Vec<LiveEvent>) -> Vec<LiveEvent> {
             });
             last_period = Some(e.period.to_num());
         }
-        result.push(e.clone());
+        if !matches!(e.get_event_type(), EventType::Period(_)) {
+            result.push(e.clone());
+        }
     }
 
      result.push(LiveEvent { 

@@ -25,7 +25,7 @@ pub enum ApiAthleteStats {
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ApiPlayerStats {
-    #[serde(rename = "+/-")]
+    #[serde(rename = "d")]
     pub plus_minus: i32,
     pub a: i32,
     pub fol: i32,
