@@ -25,7 +25,10 @@ impl Standing {
 }
 
 impl ApiGame {
-    fn did_team_win(&self, team_code: &str) -> bool {
+    pub fn did_team_win(&self, team_code: &str) -> bool {
+        if self.home_team_result == self.away_team_result {
+            return false;
+        }
         let winner = match self.home_team_result > self.away_team_result {
             true => &self.home_team_code,
             false => &self.away_team_code,

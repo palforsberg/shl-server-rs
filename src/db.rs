@@ -1,10 +1,10 @@
-use serde::{Serialize};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::log;
 use std::fmt::Display;
 use std::time::{Instant, Duration, SystemTime};
 use walkdir::WalkDir;
-use crate::{CONFIG};
+use crate::CONFIG;
 
 pub struct Db<K: Display, V: DeserializeOwned + Serialize> {
     pub name: String,
@@ -59,8 +59,15 @@ impl<K: Display + Clone, V: DeserializeOwned + Serialize + Clone> Db<K, V> {
     }
 
     pub fn write(&self, key: &K, obj: &V) -> std::io::Result<()> {
+        self.write_pretty(key, obj, false)
+    }
+
+    pub fn write_pretty(&self, key: &K, obj: &V, pretty: bool) -> std::io::Result<()> {
         let before = Instant::now();
-        let json = serde_json::to_string(&obj)?;
+        let json = match pretty {
+            true => serde_json::to_string_pretty(&obj)?,
+            false => serde_json::to_string(&obj)?,
+        };
         let path = std::path::PathBuf::from(self.get_path(&key.to_string()));
         std::fs::create_dir_all(path.parent().unwrap())?;
         let result = std::fs::write(path, json);

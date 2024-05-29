@@ -1065,6 +1065,6 @@ fn get_team_info(code: &str, score: i16) -> GameTeamInfo {
     GameTeamInfo { 
         code: code.to_string(), 
         score: StringOrNum::Number(score), 
-        names: TeamNames { code: code.to_string(), long: "".to_string(), short: "".to_string() } 
+        names: Some(TeamNames { code: code.to_string(), long: "".to_string(), short: "".to_string() }) 
     }
 }

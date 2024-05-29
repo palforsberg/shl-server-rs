@@ -42,6 +42,7 @@ impl ShlServer {
             api_key: "API_KEY".to_string(),
             sse_sleep: 0,
             sse_file_append: false,
+            ..Default::default()
         };
 
         let config_str = serde_json::to_string(&config).unwrap();

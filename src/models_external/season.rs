@@ -13,13 +13,14 @@ pub struct GameTeamInfo {
     #[serde(default = "default_TBD")]
     pub code: String,
     pub score: StringOrNum,
-    pub names: TeamNames,
+    pub names: Option<TeamNames>,
 }
 
 impl GameTeamInfo {
     pub fn get_code(&self) -> String {
         match self.code.as_str() {
-            "HERR" => self.names.code.clone(),
+            "HERR" => self.names.as_ref().map(|e| e.code.as_str())
+                .unwrap_or(self.code.as_str()).to_string(),
             _ => self.code.clone(),
         }
     } 

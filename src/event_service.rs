@@ -118,32 +118,37 @@ fn add_period_events(raw_events: Vec<LiveEvent>) -> Vec<LiveEvent> {
     }
 
     let mut result: Vec<LiveEvent> = Vec::new();
-    let mut last_period = None;
+    let mut last_period = 1;
+
+    result.push(LiveEvent { 
+        gameUuid: raw_events.first().map(|e| e.gameUuid.clone()).unwrap_or("game_uuid".to_string()), 
+        eventId: None, 
+        period: StringOrNum::Number(1), 
+        eventType: Some(EventType::Period(PeriodType { started: true, finished: false})) 
+    });
+
     for e in raw_events.iter() {
-        if last_period.is_none() {
-            last_period = Some(e.period.to_num());
-        }
         if matches!(e.get_event_type(), EventType::Goal(_) | EventType::Penalty(_) | EventType::Shot(_)) && 
-            e.period.to_num() != last_period.unwrap() {
+            e.period.to_num() != last_period {
             result.push(LiveEvent { 
                 gameUuid: e.gameUuid.to_string(), 
-                eventId: Some(e.period.clone()), 
-                period: StringOrNum::Number(last_period.unwrap()), 
-                eventType: Some(EventType::Period(PeriodType { started: true, finished: false})) 
+                eventId: None, 
+                period: StringOrNum::Number(last_period), 
+                eventType: Some(EventType::Period(PeriodType { started: true, finished: true })) 
             });
-            last_period = Some(e.period.to_num());
+            result.push(LiveEvent { 
+                gameUuid: e.gameUuid.to_string(), 
+                eventId: None, 
+                period: e.period.clone(),
+                eventType: Some(EventType::Period(PeriodType { started: true, finished: false })) 
+            });
+            last_period = e.period.to_num();
         }
         if !matches!(e.get_event_type(), EventType::Period(_)) {
             result.push(e.clone());
         }
     }
 
-     result.push(LiveEvent { 
-        gameUuid: raw_events.first().map(|e| e.gameUuid.clone()).unwrap_or("game_uuid".to_string()), 
-        eventId: Some(StringOrNum::Number(666)), 
-        period: StringOrNum::Number(1), 
-        eventType: Some(EventType::Period(PeriodType { started: true, finished: false})) 
-    });
     result
 }
 
@@ -163,15 +168,16 @@ impl EventService {
         let raw_events = if !db_raw.is_stale(&game_uuid.to_string(), throttle_s) {
             db_raw.read(&game_uuid.to_string()).unwrap_or_default()
         } else {
-            let raw_events = rest_client::get_events_2023(game_uuid).await.unwrap_or_default();
-            let mut result = add_period_events(raw_events);
-            result.reverse();
+            let mut raw_events = rest_client::get_events_2023(game_uuid).await.unwrap_or_default();
+            raw_events.reverse();
+            let result = add_period_events(raw_events);
             _ = db_raw.write(&game_uuid.to_string(), &result);
             result
         };
 
         Some(raw_events.into_iter().map(|e| e.into()).rev().collect())
     }
+    
 
     async fn update_older_season(game_uuid: &str, throttle_s: Option<Duration>) -> Option<Vec<ApiGameEvent>> {
         let db_raw: Db<String, Vec<models_external::event::PlayByPlay>> = Db::new("v2_events_raw");
@@ -200,6 +206,22 @@ impl EventService {
             new_event = true;
         }
         _ = db.write(&game_uuid.to_string(), &events);
+        new_event
+    }
+
+    pub fn store_raws(game_uuid: &str, events: &Vec<LiveEvent>) -> Vec<LiveEvent> {
+        let db = Db::<String, Vec<LiveEvent>>::new("v2_events_raw_2023");
+        let mut stored_events = db.read(&game_uuid.to_string()).unwrap_or_default();
+        let mut new_event = Vec::new();
+        for event in events {
+            if let Some(pos) = stored_events.iter().position(|e| e.get_event_id() == event.get_event_id()) {
+                stored_events[pos] = event.clone();
+            } else {
+                stored_events.push(event.clone());
+                new_event.push(event.clone());
+            }
+        }
+        _ = db.write(&game_uuid.to_string(), &stored_events);
         new_event
     }
 
@@ -269,26 +291,54 @@ mod tests {
 
     #[test]
     fn test_add_period_events() {
-        let events = vec![get_event(99), get_event(99), get_event(4), get_event(4), get_event(3), get_event(1)];
+        let events = vec![get_event(1), get_event(3), get_event(4), get_event(4), get_event(99), get_event(99)];
         let result = add_period_events(events);
-        assert_eq!(result.len(), 6 + 4);
+        assert_eq!(result.len(), 6 + 7);
+
+        let p1 = result[0].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 1);
+        assert_period(&p1, true, false);
 
         let p1 = result[2].clone();
         assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
-        assert_eq!(p1.period.to_num(), 99);
+        assert_eq!(p1.period.to_num(), 1);
+        assert_period(&p1, true, true);
+
+        let p1 = result[3].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 3);
+        assert_period(&p1, true, false);
 
         let p1 = result[5].clone();
         assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
-        assert_eq!(p1.period.to_num(), 4);
-
-
-        let p1 = result[7].clone();
-        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
         assert_eq!(p1.period.to_num(), 3);
+        assert_period(&p1, true, true);
+
+        let p1 = result[6].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 4);
+        assert_period(&p1, true, false);
 
         let p1 = result[9].clone();
         assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
-        assert_eq!(p1.period.to_num(), 1);
+        assert_eq!(p1.period.to_num(), 4);
+        assert_period(&p1, true, true);
+
+        let p1 = result[10].clone();
+        assert!(matches!(p1.eventType.as_ref().expect("msg"), EventType::Period(_)));
+        assert_eq!(p1.period.to_num(), 99);
+        assert_period(&p1, true, false);
+    }
+
+    fn assert_period(period: &LiveEvent, started: bool, finished: bool) {
+        match period.get_event_type() {
+            EventType::Period(e) => {
+                assert_eq!(e.finished, finished);
+                assert_eq!(e.started, started);
+            },
+            _ => panic!(""),
+        }
     }
 
     fn get_event(period: i16) -> LiveEvent {

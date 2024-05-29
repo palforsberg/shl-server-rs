@@ -51,6 +51,7 @@ impl ApnClient {
             .http2_keep_alive_interval(std::time::Duration::from_secs(60 * 55))
             .http2_keep_alive_timeout(std::time::Duration::from_secs(60 * 55))
             .http2_keep_alive_while_idle(true)
+            .timeout(std::time::Duration::from_secs(10))
             .build() {
                 Ok(e) => e,
                 Err(_) => { return Err(ApnError::Other); }

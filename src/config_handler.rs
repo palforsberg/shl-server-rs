@@ -29,7 +29,10 @@ pub struct Config {
     pub sse_sleep: u64,
 
     #[serde(default="default_true")]
-    pub sse_file_append: bool
+    pub sse_file_append: bool,
+
+    #[serde(default="default_false")]
+    pub poll: bool
 }
 
 fn default_db_path() -> String {
@@ -44,6 +47,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_false() -> bool {
+    false
+}
+
 impl Config {
     pub fn get_url(&self, league: &League) -> &str {
         match league {
@@ -56,7 +63,6 @@ impl Config {
 pub fn get_config() -> Config {
     let path = std::env::var("CONFIG_PATH").ok()
         .unwrap_or_else(|| "./deployment/config.json".to_string());
-    println!("[CONFIG] {}", path);
     let data = fs::read_to_string(path.clone())
         .expect("Unable to read file");
     let mut result: Config = serde_json::from_str(&data)
@@ -65,5 +71,6 @@ pub fn get_config() -> Config {
         result.db_path = db_path;
         println!("[CONFIG] DB_PATH {}", result.db_path);
     }
+    println!("[CONFIG] {:?}", result);
     result
 }

@@ -60,6 +60,10 @@ pub async fn get_events_2023(game_uuid: &str) -> Option<Vec<LiveEvent>> {
     get_call(&url).await
 }
 
+pub fn get_report_url(league: &League, game_uuid: &str) -> String {
+    format!("{}/gameday/game-overview/{game_uuid}", CONFIG.get_url(league))
+}
+
 pub fn get_stats_url(league: &League, game_uuid: &str) -> String {
     format!("{}/gameday/periodstats/{game_uuid}", CONFIG.get_url(league))
 }
@@ -91,7 +95,11 @@ pub async fn throttle_call<T: DeserializeOwned + Serialize + Clone + Default>(ur
 
 async fn get_call<T: DeserializeOwned>(url: &str) -> Option<T> {
     let before = Instant::now();
-    if let Some(rsp) = reqwest::get(url).await.ok_log(format!("[REST] {} Call failed", url).as_str()) {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok_log(format!("[REST] {} Client build failed", url).as_str());
+    if let Some(rsp) = client?.get(url).send().await.ok_log(format!("[REST] {} Call failed", url).as_str()) {
         let res = rsp.json().await.ok_log(format!("[REST] {} Parse failed", url).as_str());
         log::info!("[REST] Call {url} {:.2?}", before.elapsed());
         res

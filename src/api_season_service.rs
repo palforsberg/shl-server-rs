@@ -168,8 +168,8 @@ mod tests {
         let season_key = SeasonKey(Season::Season2023, crate::models::League::SHL, crate::models::GameType::Season);
         let season_game = SeasonGame { 
             uuid: "uuid".to_string(), 
-            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() } },
-            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() } },
+            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: Some(TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() }) },
+            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: Some(TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() }) },
             startDateTime: Utc::now() + Duration::minutes(10), 
             state: "pre-game".to_string(), 
             shootout: false, 
@@ -198,8 +198,8 @@ mod tests {
         let season_key = SeasonKey(Season::Season2023, crate::models::League::SHL, crate::models::GameType::Season);
         let season_game = SeasonGame { 
             uuid: "uuid".to_string(), 
-            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() } },
-            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() } },
+            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: Some(TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() }) },
+            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: Some(TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() }) },
             startDateTime: Utc::now() - Duration::minutes(10), 
             state: "pre-game".to_string(), 
             shootout: false, 
@@ -229,8 +229,8 @@ mod tests {
         let season_key = SeasonKey(Season::Season2023, crate::models::League::SHL, crate::models::GameType::Season);
         let season_game = SeasonGame { 
             uuid: "uuid".to_string(), 
-            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() } },
-            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() } },
+            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: Some(TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() }) },
+            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: Some(TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() }) },
             startDateTime: Utc::now() - Duration::minutes(10), 
             state: "post-game".to_string(), 
             shootout: false, 
@@ -259,8 +259,8 @@ mod tests {
         let season_key = SeasonKey(Season::Season2023, crate::models::League::SHL, crate::models::GameType::Season);
         let season_game = SeasonGame { 
             uuid: "uuid".to_string(), 
-            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() } },
-            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() } },
+            awayTeamInfo: GameTeamInfo { code: "SAIK".to_string(), score: Number(0), names: Some(TeamNames { code: "SAIK".to_string(), long: "SAIK".to_string(), short: "SAIK".to_string() }) },
+            homeTeamInfo: GameTeamInfo { code: "LHF".to_string(), score: Number(0), names: Some(TeamNames { code: "LHF".to_string(), long: "LHF".to_string(), short: "LHF".to_string() }) },
             startDateTime: Utc::now() - Duration::minutes(10), 
             state: "post-game".to_string(), 
             shootout: false, 

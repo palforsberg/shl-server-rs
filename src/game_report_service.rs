@@ -1,6 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::Duration};
 
-use crate::{db::Db, models_external, models_api::report::ApiGameReport, msg_bus::UpdateReport};
+use serde::{Serialize, Deserialize};
+
+use crate::{db::Db, models_external, models_api::report::{ApiGameReport, GameStatus}, msg_bus::UpdateReport, models::League, rest_client};
 
 impl Display for ApiGameReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,8 +45,42 @@ impl From<models_external::event::GameReport> for UpdateReport {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct GameOverview {
+    pub gameUuid: String,
+    pub homeGoals: i16,
+    pub awayGoals: i16,
+    pub state: String,
+    pub time: GameTime,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct GameTime {
+    period: i16,
+    periodTime: String,
+}
+
+impl From<GameOverview> for UpdateReport {
+    fn from(v: GameOverview) -> Self {
+        let status = GameStatus::get_from(&v.state, v.time.period);
+        UpdateReport {
+            gametime: Some(v.time.periodTime),
+            status: Some(status.clone()),
+            home_team_result: Some(v.homeGoals),
+            away_team_result: Some(v.awayGoals),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct GameReportService;
 impl GameReportService {
+    pub async fn fetch_update(league: &League, game_uuid: &str, throttle_s: Option<Duration>) -> Option<UpdateReport> {
+        let url = rest_client::get_report_url(league, game_uuid);
+        let rsp: Option<GameOverview> = rest_client::throttle_call(&url, throttle_s).await;
+        rsp.map(|e| e.into())
+    }
+
     pub fn store(game_uuid: &str, report: &ApiGameReport) {
         let db = GameReportService::get_db();
         _ = db.write(&game_uuid.to_string(), report);
